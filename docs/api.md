@@ -23,8 +23,8 @@
 
 - `GET/POST /admin/banks`；`PATCH /admin/banks/{id}`。
 - `GET/POST /admin/cardholders`；`PATCH /admin/cardholders/{id}`。
-- `GET/POST /admin/account-groups`；`PATCH /admin/account-groups/{id}`。
-- `GET/POST /admin/accounts`；`PATCH /admin/accounts/{id}`。创建时可覆盖默认 mode；已有账户不能修改 mode / group。
+- `GET/POST /admin/account-groups`；`PATCH /admin/account-groups/{id}`。仅保留内部关联与旧客户端兼容，管理页面不再要求单独配置分组。
+- `GET/POST /admin/accounts`；`PATCH /admin/accounts/{id}`。创建时传 `bank_id`、`cardholder_id` 和 `name`，自动复用该银行与持卡人最早创建的有效分组，没有时创建“默认”分组；停用分组不会被重新启用。兼容旧客户端仅传 `group_id`，两种归属方式不能混传。创建时可覆盖默认 mode；已有账户不能修改 mode / 归属。自动分组与账户在同一事务提交，不合并现有还款账户或账单。
 - `POST /admin/cards`；`PATCH /admin/cards/{id}`。卡片列在账户响应内，只存四位尾号。
 - `GET /admin/audit-events`。
 - `POST /admin/devices/pairing-codes`；`GET /admin/devices`；`POST /admin/devices/{id}/revoke`。

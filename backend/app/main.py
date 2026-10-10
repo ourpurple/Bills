@@ -320,11 +320,34 @@ def create_app(settings: Settings | None = None):
         db=Depends(get_db, scope="function"),
         actor=Depends(administrator, scope="function"),
     ):
-        group = service.require(db, AccountGroup, data.group_id)
-        bank = service.require(db, Bank, group.bank_id)
-        holder = service.require(db, Cardholder, group.cardholder_id)
-        if not group.active or not bank.active or not holder.active:
-            raise DomainError("INACTIVE_PARENT", "分组、银行或持卡人已停用")
+        if data.group_id is not None:
+            # Keep explicit groups compatible with existing clients and historical accounts.
+            group = service.require(db, AccountGroup, data.group_id)
+            bank = service.require(db, Bank, group.bank_id)
+            holder = service.require(db, Cardholder, group.cardholder_id)
+            if not group.active or not bank.active or not holder.active:
+                raise DomainError("INACTIVE_PARENT", "分组、银行或持卡人已停用")
+        else:
+            bank = service.require(db, Bank, data.bank_id)
+            holder = service.require(db, Cardholder, data.cardholder_id)
+            if not bank.active or not holder.active:
+                raise DomainError("INACTIVE_PARENT", "银行或持卡人已停用")
+            # BEGIN IMMEDIATE serializes lookup + creation. Never reactivate old groups.
+            group = db.scalar(
+                select(AccountGroup)
+                .where(
+                    AccountGroup.bank_id == bank.id,
+                    AccountGroup.cardholder_id == holder.id,
+                    AccountGroup.active.is_(True),
+                )
+                .order_by(AccountGroup.created_at, AccountGroup.id)
+                .limit(1)
+            )
+            if group is None:
+                group = AccountGroup(bank_id=bank.id, cardholder_id=holder.id, name="默认")
+                db.add(group)
+                db.flush()
+                audit(db, actor.id, "group.created", group.id)
         row = Account(
             group_id=group.id,
             name=data.name,

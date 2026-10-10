@@ -53,10 +53,21 @@ class GroupUpdate(Input):
 
 
 class AccountCreate(Input):
-    group_id: Name
+    group_id: Name | None = None
+    bank_id: Name | None = None
+    cardholder_id: Name | None = None
     name: Name
     mode: Mode | None = None
     statement_day: Annotated[int, Field(ge=1, le=31)] | None = None
+
+    @model_validator(mode="after")
+    def check_ownership(self):
+        if self.group_id is not None:
+            if self.bank_id is not None or self.cardholder_id is not None:
+                raise ValueError("所属分组与银行、持卡人不能同时指定")
+        elif self.bank_id is None or self.cardholder_id is None:
+            raise ValueError("请选择银行和持卡人")
+        return self
 
 
 class AccountUpdate(Input):

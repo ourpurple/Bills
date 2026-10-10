@@ -4351,10 +4351,43 @@
       "AccountCreate": {
         "properties": {
           "group_id": {
-            "type": "string",
-            "maxLength": 80,
-            "minLength": 1,
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Group Id"
+          },
+          "bank_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Id"
+          },
+          "cardholder_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cardholder Id"
           },
           "name": {
             "type": "string",
@@ -4394,7 +4427,6 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "group_id",
           "name"
         ],
         "title": "AccountCreate"

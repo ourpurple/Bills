@@ -3,11 +3,10 @@ import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import { api, allItems } from '../api'
-import { modeText, type Bank, type Holder, type Account, type Group } from '../types'
+import { modeText, type Bank, type Holder, type Account } from '../types'
 const banks = ref<Bank[]>([]),
   holders = ref<Holder[]>([]),
-  accounts = ref<Account[]>([]),
-  groups = ref<Group[]>([])
+  accounts = ref<Account[]>([])
 const tab = ref('accounts'),
   loading = ref(false),
   dialog = ref(false),
@@ -17,7 +16,7 @@ const tab = ref('accounts'),
 const form = ref<Record<string, any>>({})
 const title = computed(
   () =>
-    `${editing.value ? '编辑' : '新增'}${({ bank: '银行', holder: '持卡人', group: '账户分组', account: '还款账户', card: '卡片' } as Record<string, string>)[entity.value]}`,
+    `${editing.value ? '编辑' : '新增'}${({ bank: '银行', holder: '持卡人', account: '还款账户', card: '卡片' } as Record<string, string>)[entity.value]}`,
 )
 const modes = [
   { value: 'merged', label: '合并还款' },
@@ -30,14 +29,8 @@ async function load() {
       allItems<Bank>('/admin/banks'),
       allItems<Holder>('/admin/cardholders'),
       allItems<Account>('/admin/accounts'),
-      allItems<Group>('/admin/account-groups'),
     ])
-    ;[banks.value, holders.value, accounts.value, groups.value] = result as [
-      Bank[],
-      Holder[],
-      Account[],
-      Group[],
-    ]
+    ;[banks.value, holders.value, accounts.value] = result as [Bank[], Holder[], Account[]]
   } catch (e) {
     ElMessage.error((e as Error).message)
   } finally {
@@ -53,7 +46,6 @@ function open(kind: string, row?: any, accountId?: string) {
         name: '',
         code: '',
         default_mode: 'merged',
-        group_id: '',
         bank_id: '',
         cardholder_id: '',
         mode: null,
@@ -70,13 +62,17 @@ async function save() {
     return
   }
   const f = form.value
+  if (entity.value === 'account' && !editing.value && (!f.bank_id || !f.cardholder_id)) {
+    ElMessage.warning('请选择银行和持卡人')
+    return
+  }
   const creates: Record<string, unknown> = {
     bank: { code: f.code, name: f.name, default_mode: f.default_mode },
     holder: { name: f.name },
-    group: { name: f.name, bank_id: f.bank_id, cardholder_id: f.cardholder_id },
     account: {
       name: f.name,
-      group_id: f.group_id,
+      bank_id: f.bank_id,
+      cardholder_id: f.cardholder_id,
       mode: f.mode || null,
       statement_day: f.statement_day || null,
     },
@@ -85,14 +81,12 @@ async function save() {
   const updates: Record<string, unknown> = {
     bank: { name: f.name, default_mode: f.default_mode, active: f.active },
     holder: { name: f.name, active: f.active },
-    group: { name: f.name, active: f.active },
     account: { name: f.name, active: f.active, statement_day: f.statement_day || null },
     card: { name: f.name, active: f.active },
   }
   const paths: Record<string, string> = {
     bank: 'banks',
     holder: 'cardholders',
-    group: 'account-groups',
     account: 'accounts',
     card: 'cards',
   }
@@ -112,9 +106,6 @@ async function save() {
     saving.value = false
   }
 }
-function groupLabel(g: Group) {
-  return `${banks.value.find((b) => b.id === g.bank_id)?.name || ''} · ${holders.value.find((h) => h.id === g.cardholder_id)?.name || ''} · ${g.name}`
-}
 onMounted(load)
 </script>
 <template>
@@ -122,7 +113,7 @@ onMounted(load)
     <div>
       <div class="eyebrow">ACCOUNT COLLECTION</div>
       <h1>卡片有归属，账单不重复。</h1>
-      <p>先建立持卡人与银行分组，再配置实际的还款账户。</p>
+      <p>选择持卡人与银行，直接创建实际的还款账户。</p>
     </div>
     <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
   </div>
@@ -133,7 +124,7 @@ onMounted(load)
           <p>合并模式：多卡共用一份账单。独立模式：每个账户一张有效卡。</p>
           <el-button type="primary" :icon="Plus" @click="open('account')">新增账户</el-button>
         </div>
-        <el-empty v-if="!accounts.length" description="先添加持卡人及分组，再创建还款账户。" />
+        <el-empty v-if="!accounts.length" description="先添加持卡人，再选择银行创建还款账户。" />
         <div class="account-grid">
           <article
             v-for="a in accounts"
@@ -195,25 +186,6 @@ onMounted(load)
           ></el-table
         ></el-tab-pane
       >
-      <el-tab-pane label="账户分组" name="groups"
-        ><div class="toolbar">
-          <p>每个分组关联一个银行与持卡人，允许同一银行有多个分组。</p>
-          <el-button type="primary" :icon="Plus" @click="open('group')">新增分组</el-button>
-        </div>
-        <el-table :data="groups"
-          ><el-table-column label="银行 / 持卡人 / 分组"
-            ><template #default="{ row }">{{ groupLabel(row) }}</template></el-table-column
-          ><el-table-column label="状态" width="100"
-            ><template #default="{ row }">{{
-              row.active ? '有效' : '已停用'
-            }}</template></el-table-column
-          ><el-table-column label="操作" width="100"
-            ><template #default="{ row }"
-              ><el-button text @click="open('group', row)">编辑</el-button></template
-            ></el-table-column
-          ></el-table
-        ></el-tab-pane
-      >
       <el-tab-pane label="银行配置" name="banks"
         ><div class="toolbar">
           <p>默认模式只影响新建账户，不修改历史数据。实际模式可在创建账户时覆盖。</p>
@@ -255,7 +227,7 @@ onMounted(load)
             :key="m.value"
             :label="m.label"
             :value="m.value" /></el-select></el-form-item
-      ><template v-if="entity === 'group' && !editing"
+      ><template v-if="entity === 'account' && !editing"
         ><el-form-item label="银行" required
           ><el-select v-model="form.bank_id" filterable
             ><el-option
@@ -264,21 +236,13 @@ onMounted(load)
               :label="b.name"
               :value="b.id" /></el-select></el-form-item
         ><el-form-item label="持卡人" required
-          ><el-select v-model="form.cardholder_id"
+          ><el-select v-model="form.cardholder_id" filterable
             ><el-option
               v-for="h in holders.filter((h) => h.active)"
               :key="h.id"
               :label="h.name"
               :value="h.id" /></el-select></el-form-item></template
       ><template v-if="entity === 'account'"
-        ><el-form-item v-if="!editing" label="所属分组" required
-          ><el-select v-model="form.group_id" filterable
-            ><el-option
-              v-for="g in groups.filter((g) => g.active)"
-              :key="g.id"
-              :label="groupLabel(g)"
-              :value="g.id" /></el-select
-          ><small class="form-hint">没有分组？请先在“账户分组”中新增。</small></el-form-item
         ><el-form-item v-if="!editing" label="还款模式"
           ><el-select v-model="form.mode" clearable placeholder="沿用银行默认模式"
             ><el-option
