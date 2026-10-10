@@ -39,7 +39,7 @@ admin-web/
   tests/               浏览器操作测试
   package-lock.json    前端依赖锁定
 android/               Kotlin / Compose、Keystore、Room 缓存与移动端测试
-compose.yaml           API、独立 worker 与 HTTPS / 静态资源网关
+compose.yaml           API、独立 worker 与本机 9910 静态资源网关（HTTPS 由 Nginx 提供）
 deploy/                Docker 网关与 Caddy 配置
 plan.md                已确认总体开发计划和分阶段进度
 docs/                  接口契约、部署说明、开发验收记录

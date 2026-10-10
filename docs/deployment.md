@@ -8,7 +8,7 @@
 
 - `api`：FastAPI，一个 Uvicorn worker，非 root 用户 10001；SQLite 在持久卷 `/srv/data/bills.db`。只读容器文件系统，数据卷及临时目录可写。
 - `worker`：与 API 同一镜像、同一 SQLite / sources 卷和主密钥，运行 `python -m app.worker`，负责收信与转换，无公网端口。建议单副本。心跳健康检查不代表邮箱测试成功。
-- `gateway`：打包后的 Vue 静态页面与 Caddy；同域代理 `/api/*`、`/health/*`，其他路径支持前端路由。对公网只开放网关的 80 / 443，API 的 8000 不映射宿主机。
+- `gateway`：打包后的 Vue 静态页面与 Caddy；同域代理 `/api/*`、`/health/*`，其他路径支持前端路由。只映射宿主机 `127.0.0.1:9910` 到容器 HTTP 80，不占用宿主机 80 / 443；由同机现有 Nginx 提供公网 HTTPS 并代理到 9910。API 的 8000 不映射宿主机。
 
 没有 Redis、Celery、外部数据库或生产 Node 服务。真实独立 worker 使用 SQLite 持久队列；网络和文档转换不在 API 中执行。
 
@@ -34,7 +34,7 @@ BILLS_MASTER_KEY=
 
 DOMAIN 不带协议、端口路径或结尾斜线。示例域名不可用于真实证书签发。Compose 强制生产模式、`https://DOMAIN` 和安全 Cookie，不沿用本地开发的 HTTP 配置。其他本地 `.env` 选项不会覆盖容器内的数据目录或安全要求。
 
-完成 DNS 指向和入站端口配置后：
+完成 DNS 指向，在现有 Nginx 配置 HTTPS 域名及下文反向代理（公网开放 Nginx 的 80 / 443，不需要开放 9910）后：
 
 ```sh
 docker compose build
@@ -46,7 +46,7 @@ docker compose up -d
 docker compose ps
 ```
 
-先迁移再启动，避免 readiness 检查因数据库未初始化而失败。创建管理员会交互输入密码，不使用命令行密码参数。初始化银行是幂等的。Caddy 的证书状态须实际检查，不提供“必定签发成功”的保证。
+先迁移再启动，避免 readiness 检查因数据库未初始化而失败。创建管理员会交互输入密码，不使用命令行密码参数。初始化银行是幂等的。Caddy 只提供内部 HTTP，不申请证书、不自动跳转 HTTPS；公网证书由现有 Nginx 管理，须实际检查有效性及续期。
 
 健康检查：
 
@@ -58,9 +58,42 @@ docker compose exec api python -c "import urllib.request; print(urllib.request.u
 
 当前禁用代理 IP 信任，登录 / 配对的失败限速在网关后会共享来源地址；个人单用户版本接受此限制，避免无边界信任伪造转发头。后续如调整代理信任，只能信任明确的网关地址。
 
-### 已有 HTTPS 入口
+### 现有 Nginx HTTPS 入口（默认部署方式）
 
-如果已有 Nginx / Caddy 等服务占用 80 / 443，不要直接运行当前网关端口配置。需根据现有入口调整代理链、映射端口和 TLS 终止位置。后端 `public_origin` 必须与用户访问的最终 HTTPS 来源完全一致，Cookie 仍须安全；这部分在得到现有配置后适配，不直接修改用户服务器。
+请求链路：`浏览器 / App -> HTTPS Nginx -> HTTP 127.0.0.1:9910 -> Caddy -> API / 静态页面`。
+
+在真实域名的现有 HTTPS `server` 中配置以下 `location`；如果已有 `location /`，替换该段，不要重复添加。保留当前证书、域名和 HTTP 到 HTTPS 跳转配置。
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:9910;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    client_max_body_size 20m;
+    proxy_read_timeout 120s;
+}
+```
+
+Nginx 上限允许邮件上传；Caddy 仍将其他 API 请求限制为 1 MB，后端仍校验 EML 20 MiB / PDF 10 MiB。先执行 `nginx -t`，通过后再使用当前 Nginx 的管理方式重载（例如 `systemctl reload nginx`）。
+
+根目录 `.env` 的 `DOMAIN` 必须与用户访问的最终 HTTPS 域名一致，不带协议、端口或路径。后端仍使用 `https://${DOMAIN}` 和安全 Cookie；不要为了内部 HTTP 链路关闭生产安全要求。生产登录请访问 HTTPS 域名，不要直接用 `http://IP:9910`。Nginx 应代理整个站点，不要只代理 `/api`，也不要使用子路径前缀。
+
+这里默认 Nginx 直接运行在同一台 VPS 上。如果 Nginx 在另一个容器或另一台机器上，`127.0.0.1` 不是项目网关地址，需另行配置共享 Docker 网络或受限的内网访问，不要直接开放公网端口。
+
+已有 API / worker 启动成功、只是网关 443 冲突时，提交并推送这次配置修改后，在 VPS 项目目录执行：
+
+```sh
+git pull --ff-only
+docker compose config --quiet
+docker compose up -d --build --no-deps gateway
+docker compose ps
+curl -fsS http://127.0.0.1:9910/health/ready
+```
+
+Caddyfile 是构建时复制进镜像的，必须重建网关，不能只重启旧容器。以上命令只更新 gateway，不重新初始化数据库、不重新生成主密钥，也不停止 API / worker。最后用真实 HTTPS 域名访问 `/health/ready` 并登录后台验收。无需执行 `docker compose down`，尤其不能使用 `down -v` 删除数据卷。
 
 ## 3. 更新与密码恢复
 

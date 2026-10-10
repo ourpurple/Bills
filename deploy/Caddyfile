@@ -1,4 +1,9 @@
-{$DOMAIN} {
+{
+    # The host Nginx terminates TLS; never issue certificates or redirect to HTTPS here.
+    auto_https off
+}
+
+:80 {
     encode zstd gzip
     header {
         X-Content-Type-Options nosniff

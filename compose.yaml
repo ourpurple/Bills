@@ -54,12 +54,10 @@ services:
       context: .
       dockerfile: deploy/gateway.Dockerfile
     restart: unless-stopped
-    environment:
-      DOMAIN: ${DOMAIN:?请在 .env 设置真实域名}
+    # HTTPS is handled by the existing Nginx on the host.
+    # Publish HTTP only on loopback; do not expose the gateway publicly.
     ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
+      - "127.0.0.1:9910:80"
     volumes:
       - caddy_data:/data
       - caddy_config:/config
