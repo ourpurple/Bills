@@ -1,0 +1,162 @@
+# 账序 Bills
+
+个人使用的信用卡账单档案：FastAPI + SQLite API、Vue 3 / Element Plus 管理后台，支持多邮箱导入、大模型识别和人工核对；已提供 Kotlin / Compose 原生安卓调试版，用于查看账单和有限还款写入。
+
+**当前交付：P1 人工账单闭环 + P2 邮箱与资料导入 + P3 模型识别与核对 + P4 安卓源代码与调试 APK，版本 0.4.0。安卓已通过编译、单元测试和静态检查，设备交互尚未验收；不是完整项目的最终版本。**
+
+## 已实现 / 未实现
+
+| 已实现 | 尚未实现或验收 |
+| --- | --- |
+| 13 家银行默认模式、持卡人、银行分组、还款账户、卡片尾号 | 13 家银行实际邮件样本逐家验收 |
+| 合并账户多卡、独立账户一张有效卡；账户模式创建后不可直接切换 | 超长详单分块识别与合并 |
+| 人工草稿、确认、修订历史、作废、账单分页查询 | 系统通知和 SMTP 提醒 |
+| 多邮箱 IMAP / POP3、增量 / 补扫、独立 worker、持久任务 | 真实邮箱授权与实际模型服务商联调 |
+| EML / 文本型 PDF 上传、来源去重、安全纯文本预览 | 扫描 / 加密 PDF、OAuth 邮箱 |
+| 可更换 chat completions 接口、加密密钥、调用预算和有限重试 | 真正的 VPS Docker / ARM / HTTPS 部署验证 |
+| 模型摘要 / 详单 / 证据、账户匹配、候选人工编辑 / 发布 / 忽略 | 定时备份、加密异地副本、完整容器恢复演练 |
+| 跨来源账单重复保护、同账单修订保留还款及历史详单 | 正式签名 APK 与真机验收 |
+| 还款标记 / 计划、权限 / 配对、迁移 / Docker 配置 / SQLite 备份 | 试运行与最终交付 |
+| 安卓配对、首页 / 账户 / 历史 / 分页详单、有限在线写入与加密只读缓存 | 安卓设备交互、离线恢复及系统通知真机验收 |
+
+**邮件中的账单字段与交易明细只能由大模型识别。没有银行模板、账单字段正则、本地账单解析器或失败后的规则兜底。** 本地仅做通用文档转文本、输出校验、原文引用存在性检查、已有账户匹配和业务入库；证据存在不代表模型理解正确，仍需人工核对。
+
+模型启用、自动识别和自动发布默认关闭。手动识别也会向你选择的服务商发送文本；密钥不写在聊天或仓库。详见 `docs/model-guide.md`。
+
+本软件不执行支付、不登录网银、不验证银行实际到账。“已标记结清”仅反映用户录入的还款记录。当前没有提醒投递，保存计划不会自动发送通知。
+
+## 工程结构
+
+```text
+backend/
+  app/                 API、权限、领域模型、业务规则、管理命令和备份
+  migrations/          固定版本数据库迁移
+  tests/               自动化业务和权限测试
+  scripts/             隔离的浏览器测试服务（不进入生产镜像）
+  requirements*.txt    已验证环境的依赖版本
+admin-web/
+  src/                 登录、账单概览、账户与卡片、账单管理、邮箱导入、模型核对与安全设置
+  tests/               浏览器操作测试
+  package-lock.json    前端依赖锁定
+android/               Kotlin / Compose、Keystore、Room 缓存与移动端测试
+compose.yaml           API、独立 worker 与 HTTPS / 静态资源网关
+deploy/                Docker 网关与 Caddy 配置
+plan.md                已确认总体开发计划和分阶段进度
+docs/                  接口契约、部署说明、开发验收记录
+```
+
+## Windows 本地启动
+
+以下命令均从项目根目录 `D:\code\Bills` 开始。需要 Python 3.11、Node.js 24 和 npm；当前工作区已经创建开发环境，但新机器需要按下述步骤初始化。
+
+### 1. 安装依赖
+
+```powershell
+cd D:\code\Bills
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r backend\requirements-dev.txt
+npm --prefix admin-web ci
+```
+
+### 2. 本地配置、数据库和管理员
+
+```powershell
+cd D:\code\Bills
+Copy-Item .env.example backend\.env
+cd backend
+..\.venv\Scripts\python.exe -m app.cli init-db
+..\.venv\Scripts\python.exe -m app.cli create-admin --username admin
+```
+
+密码交互输入，至少 12 位。不提供默认管理员密码，也没有公开注册。重复运行 `init-db` 不会覆盖已修改的银行配置。首版只允许一个管理员，持卡人资料不等于登录用户。
+
+本地配置从后端工作目录的 `.env` 读取；默认数据库是 `backend/data/bills.db`。不要把真实密码写入命令参数、配置示例、聊天记录或源码。根目录 `.env` 供 Docker Compose 使用，与本地 `backend/.env` 分开。
+
+### 3. 分别启动 API、worker 与管理页面
+
+终端一：
+
+```powershell
+cd D:\code\Bills\backend
+..\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+终端二：
+
+```powershell
+cd D:\code\Bills\admin-web
+npm run dev
+```
+
+终端三（收信与转换任务）：
+
+```powershell
+cd D:\code\Bills\backend
+..\.venv\Scripts\python.exe -m app.worker
+```
+
+设置邮箱前，在后端目录运行 `..\.venv\Scripts\python.exe -m app.cli generate-key`，将生成的密钥安全填入 `backend/.env` 的 `BILLS_MASTER_KEY`，重启 API 和 worker，二者必须使用同一密钥。不要在聊天、截图或仓库中暴露真实密钥。没有密钥可先上传测试资料，但不能保存邮箱凭证。
+
+浏览器地址：`http://localhost:5173`。请使用 localhost 而不是 127.0.0.1，否则请求来源与默认配置不一致。API 由开发服务器代理，前端不需要 CORS 放宽。开发服务器仅供本机使用，不要公开到互联网。
+
+首次操作顺序：**持卡人 → 账户分组 → 还款账户 → 卡片 → 人工账单草稿 → 确认 → 记录还款或计划**。
+
+### 4. 测试与构建
+
+```powershell
+cd D:\code\Bills
+.\.venv\Scripts\python.exe -m pytest backend -q
+.\.venv\Scripts\python.exe -m ruff check backend
+.\.venv\Scripts\python.exe -m ruff format --check backend
+npm --prefix admin-web run format:check
+npm --prefix admin-web run build
+cd admin-web
+npx playwright install chromium
+npm run test:e2e
+```
+
+浏览器测试会自行启动隔离的 API 和前端服务，使用临时数据库、随机主密钥、独立 worker 和**仅测试用途**的账号，结束后关闭测试服务。先停止占用 8000 / 5173 的本地服务，不会复用已有服务器或连接个人数据库。测试账号不由正式初始化命令创建，也不包含在生产镜像中。
+
+## 数据口径
+
+- 五家合并默认银行：招商、工商、华夏、民生、浦发。八家独立默认银行：农业、交通、兴业、中信、广发、中国、建设、邮储。这是用户指定配置，不是对银行全部产品政策的自动判断。
+- 一个还款账户、一种币种、一个账单日只保存一个稳定账单 ID。合并账户不按卡片重复计算金额。
+- 修改银行默认模式仅影响新建账户；实际模式可在创建时覆盖。已有账户若需切换模式或归属，应新建账户、停用旧账户，不重写历史账单。
+- 金额用最小货币单位整数保存，API 以十进制字符串返回。未知金额为 `null`，确认的零为 `"0.00"`；JPY 不允许小数。人民币和外币不折算相加。
+- 草稿不纳入正式汇总。确认必须有应还金额及到期日。修订生成新版本，保留原版及稳定的还款关联，不删除历史。
+- 汇总只取每个账户、币种最新已确认账单；旧账单未标记结清单独提示，避免结转后重复累加。缺失账单会提示未知，不能把空汇总理解为银行无欠款。
+- 停用账户及上级资料会阻止新增账单 / 卡片；已确认的旧账单仍展示并参与最新账单口径，避免隐藏待核对债务。
+- 计划不减少待还。部分还款可多次标记。超额或出账前还款需显式再次确认；未来时间必须使用计划，已还款记录允许不超过五分钟的设备时钟误差。
+- 还款可以撤销，历史记录保留。作废账单前必须撤销有效已还款标记；作废会取消关联计划。首版不做跨账期自动分配。
+- 时间存储为 UTC，页面统一按 Asia/Shanghai 显示。安卓表单明确按北京时间录入，不随手机时区变化；管理网页日期时间控件按浏览器本地时区解释。
+
+## VPS 部署、备份与接口
+
+见 `docs/deployment.md`、`docs/api.md`、`docs/model-guide.md` 和 `docs/progress.md`。Docker 配置已经提供，但当前机器没有 Docker，**不能把配置文件交付视为 ARM VPS 部署验收通过**。
+
+开发环境可访问 `http://localhost:8000/api/openapi.json`；生产环境关闭 OpenAPI 页面。已导出的非秘密接口契约在 `docs/openapi.json`。
+
+安卓安装包：`android/app/build/outputs/apk/debug/app-debug.apk`（本地构建产物，不纳入源码）。安装后在后台「安全与设置」生成配对码，输入根服务地址和配对码连接。仅供个人测试，正式签名与真机验收尚未完成。详见 `docs/android-guide.md`。生成配对码不会安装或生成 APK。
+
+## 下一阶段
+
+下一开发阶段为 P5：服务端提醒、安卓通知协调和可选 SMTP 兜底，同时补齐 P4 真机验收。P3 真实服务商及银行样本验收仍待完成，先用脱敏样本、手动识别和人工核对验证；不要启用未验证格式的自动发布。真实联调所需邮箱凭证与模型密钥通过后台安全填写，不发送到聊天中。
+
+## P2 / P3 导入与备份补充
+
+- 「邮箱与导入」支持多个 IMAP / POP3 邮箱、连接测试、同步 / 补扫、任务详情和重试，以及原邮件 / PDF 上传、安全纯文本预览。
+- TLS 证书必须验证，只连接公网；OAuth、扫描 PDF、加密 PDF、压缩附件首版不支持。
+- `python -m app.worker --healthcheck` 仅检查最近心跳；建议一个 worker。API 可以在 worker 停止时继续管理已有账单，任务会排队。
+- **SQLite 的 `backup` 命令只备份数据库，不包括原始 / 转换资料和主密钥。** P2 / P3 完整恢复必须同时保存 `sources/` 目录及单独安全保存的 `BILLS_MASTER_KEY`。见 `docs/deployment.md`。
+- “文本已准备”不代表已识别账单。进入来源操作「模型识别」，等待 worker 完成后，在「模型与核对」检查原文、账户、日期、币种、金额与详单，再确认发布。
+
+## P3 快速试用
+
+1. 按下方部署说明备份并升级数据库到 `c38f14d7a902`，API 与 worker 使用同一主密钥。
+2. 创建准确的持卡人、银行分组、还款账户和卡片尾号，避免模型候选无法唯一匹配。
+3. 「模型与核对 → 配置模型」填写 HTTPS 基础地址、模型名和 API Key；开启模型，但先保持自动识别 / 自动发布关闭。
+4. 连接测试仅发送固定测试文本，测试成功不代表实际账单提取合格。
+5. 上传一份脱敏 EML / 文本 PDF，文本准备后手动识别；核对候选，修改后先保存，填写说明，再发布。
+6. 若已有同账户 / 日期 / 币种账单，必须明确选择相同或修订；修订保留原账单 ID、还款记录及历史版本。
+
+强制重新识别、失败自动重试、人工重试都可能产生新费用。费用未知不是零；输入截断或资料不全必须核对原件，不允许无提示自动发布。

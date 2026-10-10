@@ -1,0 +1,87 @@
+# Python environments, bytecode and tool caches
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.hypothesis/
+.tox/
+.nox/
+*.egg-info/
+
+# Coverage and test reports
+.coverage
+.coverage.*
+htmlcov/
+coverage/
+coverage.xml
+playwright-report/
+playwright/.cache/
+test-results/
+
+# Frontend dependencies and generated output
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# Local environment configuration (keep safe examples)
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Private bill data, imported source documents and backups
+# These directory names are ignored at every level of the project.
+data/
+sources/
+backups/
+*.sqlite*
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+
+# Android local tools, build output and device test artifacts
+android/.gradle/
+android/.kotlin/
+android/**/build/
+android/**/.cxx/
+android/**/.externalNativeBuild/
+android/local.properties
+android/.test-avd/
+android/.test-logs/
+android/.tools/
+*.apk
+*.aab
+*.hprof
+
+# Signing keys and private credentials
+*.jks
+*.keystore
+keystore.properties
+*.p12
+*.pfx
+*.pem
+*.key
+
+# Local editor settings, logs and temporary files
+.idea/
+.vscode/
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Operating system metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Keep dependency locks, Gradle Wrapper, migrations and documentation tracked.
+# Do not add blanket rules for *.jar, *.json, *.lock or docs/screenshots/.

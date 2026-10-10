@@ -1,0 +1,72 @@
+name: bills
+x-backend: &backend
+  image: bills-backend:0.3.0
+  build:
+    context: .
+    dockerfile: backend/Dockerfile
+  restart: unless-stopped
+  environment:
+    BILLS_DATABASE_URL: sqlite:////srv/data/bills.db
+    BILLS_STORAGE_DIR: /srv/data/sources
+    BILLS_MASTER_KEY: ${BILLS_MASTER_KEY:-}
+    BILLS_PUBLIC_ORIGIN: https://${DOMAIN:?请在 .env 设置真实域名}
+    BILLS_SECURE_COOKIES: "true"
+    BILLS_ENV: production
+    BILLS_SESSION_HOURS: ${BILLS_SESSION_HOURS:-12}
+    BILLS_DEVICE_DAYS: ${BILLS_DEVICE_DAYS:-90}
+  volumes:
+    - bills_data:/srv/data
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=64m
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+services:
+  api:
+    <<: *backend
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+  worker:
+    <<: *backend
+    command: ["python", "-m", "app.worker"]
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.worker", "--healthcheck"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
+  gateway:
+    build:
+      context: .
+      dockerfile: deploy/gateway.Dockerfile
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?请在 .env 设置真实域名}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+volumes:
+  bills_data:
+  caddy_data:
+  caddy_config:

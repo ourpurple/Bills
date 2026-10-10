@@ -1,0 +1,30 @@
+{$DOMAIN} {
+    encode zstd gzip
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        X-Frame-Options DENY
+        Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+    }
+    # Only raw EML/PDF upload receives the larger limit; API still checks 20/10 MiB.
+    @upload path /api/v1/admin/sources/upload
+    handle @upload {
+        request_body {
+            max_size 20971520
+        }
+        reverse_proxy api:8000
+    }
+    @backend path /api/* /health/*
+    handle @backend {
+        request_body {
+            max_size 1MB
+        }
+        reverse_proxy api:8000
+    }
+    handle {
+        root * /srv
+        try_files {path} /index.html
+        header Cache-Control "no-cache"
+        file_server
+    }
+}
