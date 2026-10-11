@@ -50,6 +50,7 @@ const defaultConfig = () => ({
   output_price: '',
   price_currency: 'CNY',
 })
+const configurationVersion = ref(0)
 const form = ref(defaultConfig()),
   privacyMode = ref('retain'),
   privacy = ref('')
@@ -115,6 +116,7 @@ function closeConfiguration() {
 }
 function configure() {
   const c = status.value?.config
+  configurationVersion.value = c?.version || 0
   form.value = {
     ...defaultConfig(),
     ...(c?.configured
@@ -145,7 +147,7 @@ async function saveConfiguration() {
     busy.value = true
     await api('/admin/model-config', 'PUT', {
       ...form.value,
-      expected_version: status.value?.config.version || 0,
+      expected_version: configurationVersion.value,
       api_key: form.value.api_key || null,
       input_price: form.value.input_price || null,
       output_price: form.value.output_price || null,
@@ -160,6 +162,27 @@ async function saveConfiguration() {
     privacy.value = ''
     configurationOpen.value = false
     ElMessage.success('模型配置已保存，旧任务不会使用新配置提交结果')
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close') ElMessage.error((e as Error).message)
+  } finally {
+    busy.value = false
+    await load()
+  }
+}
+async function deleteConfiguration() {
+  if (busy.value || !status.value?.config.configured) return
+  const version = configurationOpen.value ? configurationVersion.value : status.value.config.version
+  try {
+    await ElMessageBox.confirm(
+      '删除后将清除模型地址、名称、API Key 和隐私替换设置，关闭自动识别并取消尚未发送的模型任务。历史账单、候选和调用记录不会删除。已发送的请求无法撤回，其结果不会继续提交。确认删除吗？',
+      '删除模型配置',
+      { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' },
+    )
+    busy.value = true
+    await api('/admin/model-config', 'DELETE', { expected_version: version })
+    closeConfiguration()
+    form.value = defaultConfig()
+    ElMessage.success('模型配置已删除，历史账单与调用记录已保留')
   } catch (e) {
     if (e !== 'cancel' && e !== 'close') ElMessage.error((e as Error).message)
   } finally {
@@ -406,7 +429,17 @@ onUnmounted(() => clearInterval(timer))
         <div class="model-actions">
           <el-button :disabled="!status?.config.configured || busy" @click="connectionTest"
             >测试连接</el-button
-          ><el-button type="primary" :disabled="!status?.master_key_configured" @click="configure"
+          ><el-button
+            v-if="status?.config.configured"
+            type="danger"
+            plain
+            :disabled="busy"
+            @click="deleteConfiguration"
+            >删除模型</el-button
+          ><el-button
+            type="primary"
+            :disabled="busy || !status?.master_key_configured"
+            @click="configure"
             >配置模型</el-button
           >
         </div>
@@ -537,10 +570,10 @@ onUnmounted(() => clearInterval(timer))
       ><el-alert
         type="info"
         :closable="false"
-        title="仅连接公网 HTTPS，兼容 /v1/chat/completions。启用识别意味着将资料文本发送给你的服务商，请确认隐私与费用政策。"
+        title="支持公网 HTTP / HTTPS，兼容 /v1/chat/completions。建议使用 HTTPS；HTTP 会明文传输 API Key 和资料文本。启用识别意味着将资料文本发送给你的服务商，请确认隐私与费用政策。"
       /><el-form label-position="top" class="section-gap" @submit.prevent="saveConfiguration"
         ><div class="model-form-grid">
-          <el-form-item label="HTTPS 基础地址"
+          <el-form-item label="HTTP / HTTPS 基础地址"
             ><el-input
               v-model="form.base_url"
               placeholder="https://你的服务商/v1"
@@ -649,7 +682,14 @@ onUnmounted(() => clearInterval(timer))
           ></el-collapse
         ></el-form
       ><template #footer
-        ><el-button @click="closeConfiguration">取消</el-button
+        ><el-button
+          v-if="status?.config.configured"
+          type="danger"
+          plain
+          :disabled="busy"
+          @click="deleteConfiguration"
+          >删除模型</el-button
+        ><el-button :disabled="busy" @click="closeConfiguration">取消</el-button
         ><el-button type="primary" :loading="busy" @click="saveConfiguration"
           >保存模型配置</el-button
         ></template

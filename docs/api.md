@@ -116,7 +116,8 @@
 | 方法 / 路径 | 约定 |
 | --- | --- |
 | GET /model-config | 配置、master_key_configured、当日预留 / 未知费用 / 分币种估算及待核对数量；不返回密钥或私人替换文本 |
-| PUT /model-config | 完整配置，expected_version；首次 API Key 必填，后续 null / 省略保留；privacy_values null 保留，[] 清空；HTTPS 基础地址；版本冲突409 |
+| PUT /model-config | 完整配置，expected_version；首次 API Key 必填，后续 null / 省略保留；privacy_values null 保留，[] 清空；HTTP / HTTPS 公网基础地址（建议 HTTPS；HTTP 明文传输密钥与资料）；版本冲突409 |
+| DELETE /model-config | expected_version；清除连接信息、密钥与隐私替换文本，关闭自动识别并取消待发送任务；保留递增版本、历史候选、账单与调用记录；版本冲突409；重新添加须提供新 API Key |
 | POST /model-config/test | 202，固定文本连接测试任务，不发送账单；关闭模型仍可测试，占调用预算 |
 | POST /sources/{id}/parse | 202，JSON `{ "force": false }`；ready / partial 输入；复用同输入 / 版本运行，force明确重识别；返回运行与任务，不表示已成功 |
 | GET /model-runs | 运行分页 |

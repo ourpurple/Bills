@@ -8,10 +8,18 @@ from sqlalchemy import func, select
 
 from .core import DomainError, utc_naive
 from .llm_jobs import day_start, enqueue_model, queue_source, require_config
-from .llm_schemas import ModelConfigInput, ParseRequest, PublishRequest, RejectRequest, ReviewEdit
+from .llm_schemas import (
+    DeleteModelConfigRequest,
+    ModelConfigInput,
+    ParseRequest,
+    PublishRequest,
+    RejectRequest,
+    ReviewEdit,
+)
 from .llm_services import candidate_view, edit_candidate, pending, publish_candidate
 from .mail_api import paginated, task_json
 from .mail_crypto import encrypt_secret
+from .mail_jobs import finish_row
 from .models import Bank, MailSource, ModelCall, ModelCandidate, ModelConfig, ModelRun, Task
 from .security import administrator, audit, get_db
 from .services import require, stamp
@@ -36,8 +44,8 @@ CONFIG_FIELDS = [
 
 
 def config_view(config):
-    if not config:
-        return dict(configured=False, version=0)
+    if not config or not config.key_ciphertext:
+        return dict(configured=False, version=config.version if config else 0)
     return dict(
         configured=True,
         **{k: getattr(config, k) for k in CONFIG_FIELDS},
@@ -82,7 +90,7 @@ def save_config(
     row = db.get(ModelConfig, "primary")
     if data.expected_version != (row.version if row else 0):
         raise DomainError("MODEL_VERSION_CONFLICT", "模型配置已被修改，请刷新", 409)
-    if not row and data.api_key is None:
+    if (not row or not row.key_ciphertext) and data.api_key is None:
         raise DomainError("MODEL_KEY_REQUIRED", "首次配置必须提供 API Key", 422)
     for profile in data.auto_publish_profiles:
         bank = db.scalar(select(Bank).where(Bank.code == profile.bank_code, Bank.active.is_(True)))
@@ -96,6 +104,8 @@ def save_config(
         db.add(row)
     else:
         row.version += 1
+        if not row.key_ciphertext:
+            row.privacy_ciphertext = empty
     if data.api_key is not None:
         row.key_ciphertext = encrypt_secret(settings, data.api_key)
     if data.privacy_values is not None:
@@ -122,6 +132,40 @@ def save_config(
             }
         ),
     )
+    return config_view(row)
+
+
+@router.delete("/model-config")
+def delete_config(
+    data: DeleteModelConfigRequest,
+    db=Depends(get_db, scope="function"),
+    actor=Depends(administrator, scope="function"),
+):
+    row = db.get(ModelConfig, "primary")
+    if not row or not row.key_ciphertext:
+        raise DomainError("LLM_NOT_CONFIGURED", "没有可删除的模型配置", 409)
+    if data.expected_version != row.version:
+        raise DomainError("MODEL_VERSION_CONFLICT", "模型配置已被修改，请刷新", 409)
+    # Keep only a version tombstone: re-adding must never match old tasks/cache entries.
+    row.version += 1
+    row.base_url = row.model = row.key_ciphertext = row.privacy_ciphertext = ""
+    row.active = row.auto_parse = row.json_mode = False
+    row.auto_publish_profiles = "[]"
+    row.input_price = row.output_price = None
+    for task in db.scalars(
+        select(Task).where(
+            Task.kind.in_(["llm_test", "llm_parse"]),
+            Task.resource_key == "model:primary",
+            Task.state.in_(["queued", "retry_wait"]),
+        )
+    ):
+        finish_row(task, "cancelled", "LLM_CONFIG_CHANGED", "模型配置已删除，不再发送资料")
+        run_id = json.loads(task.payload).get("run_id")
+        run = db.get(ModelRun, run_id) if run_id else None
+        if run:
+            run.state, run.error_code = "cancelled", "LLM_CONFIG_CHANGED"
+    # Running calls keep their leases; guard_config rejects their results on completion.
+    audit(db, actor.id, "model.config_deleted", row.id, json.dumps({"version": row.version}))
     return config_view(row)
 
 

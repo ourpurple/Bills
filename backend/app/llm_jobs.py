@@ -36,7 +36,7 @@ def day_start():
 
 def require_config(db, *, active=True):
     config = db.get(ModelConfig, "primary")
-    if not config or (active and not config.active):
+    if not config or not config.key_ciphertext or (active and not config.active):
         raise DomainError("LLM_NOT_CONFIGURED", "请先保存并启用模型配置", 409)
     return config
 

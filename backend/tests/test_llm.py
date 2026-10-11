@@ -16,13 +16,13 @@ from sqlalchemy import select
 from test_mail import drain, message, task, upload
 
 from app.core import utc_naive
-from app.llm_adapter import ModelFailure, ModelReply, PinnedHTTPS, chat, strict_json
+from app.llm_adapter import ModelFailure, ModelReply, PinnedHTTP, PinnedHTTPS, chat, strict_json
 from app.llm_jobs import schedule_models
 from app.llm_schemas import normalize_base
 from app.llm_services import decode_result
 from app.mail_crypto import decrypt_secret
 from app.mail_jobs import Worker, claim, transaction
-from app.models import ModelCall, ModelConfig, PreparedInput, Task
+from app.models import AuditEvent, ModelCall, ModelConfig, PreparedInput, Task
 
 SECRET = "test-model-key-not-a-real-key"
 TEXT = "招商银行 测试持卡人 1234 2026-09-01 2026-09-21 人民币 1000.00 100.00 商店 2026-08-20 30.00"
@@ -164,6 +164,13 @@ def test_config_encryption_retention_version_csrf(admin):
     assert admin.post("/api/v1/admin/model-config/test", headers={"X-CSRF-Token": "wrong"}).status_code == 403
 
 
+def test_http_config_can_be_saved_and_read(admin):
+    row = config(admin, base_url="http://models.example.test:8080/api/v1/chat/completions")
+    assert row["base_url"] == "http://models.example.test:8080/api/v1"
+    stored = admin.get("/api/v1/admin/model-config").json()["config"]
+    assert stored["base_url"] == row["base_url"]
+
+
 def test_first_key_master_key_and_defaults(admin):
     r = admin.put(
         "/api/v1/admin/model-config",
@@ -183,7 +190,16 @@ def test_first_key_master_key_and_defaults(admin):
 @pytest.mark.parametrize(
     "url",
     [
-        "http://example.com",
+        "ftp://example.com",
+        "http://127.0.0.1",
+        "http://[::1]",
+        "http://10.0.0.2",
+        "http://user:pass@example.com",
+        "http://example.com?secret=x",
+        "http://example.com/#x",
+        "http://example.com/a/../b",
+        "http://example.com/%2e",
+        "http://example.com/ a",
         "https://127.0.0.1",
         "https://[::1]",
         "https://10.0.0.2",
@@ -203,6 +219,9 @@ def test_invalid_base(url):
 @pytest.mark.parametrize(
     "url,expected",
     [
+        ("http://example.com", "http://example.com/v1"),
+        ("http://example.com/v1/", "http://example.com/v1"),
+        ("http://EXAMPLE.com:8080/api/v1/chat/completions", "http://example.com:8080/api/v1"),
         ("https://example.com", "https://example.com/v1"),
         ("https://example.com/v1/", "https://example.com/v1"),
         ("https://example.com/api/v1/chat/completions", "https://example.com/api/v1"),
@@ -529,7 +548,8 @@ def test_p2_upgrade_and_downgrade_preserves_financial_sources(admin):
     )
 
 
-def test_body_deadline_survives_http_connection_close(monkeypatch):
+@pytest.mark.parametrize("connection_type", [PinnedHTTP, PinnedHTTPS])
+def test_body_deadline_survives_http_connection_close(monkeypatch, connection_type):
     """Real slow body on loopback; TLS wrapping mocked only in this isolated test."""
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
@@ -550,7 +570,7 @@ def test_body_deadline_survives_http_connection_close(monkeypatch):
 
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()
-    conn = PinnedHTTPS("provider.example.test", port, "127.0.0.1", time.monotonic() + 0.25)
+    conn = connection_type("provider.example.test", port, "127.0.0.1", time.monotonic() + 0.25)
 
     class Passthrough:
         def wrap_socket(self, sock, server_hostname, do_handshake_on_connect):
@@ -566,7 +586,8 @@ def test_body_deadline_survives_http_connection_close(monkeypatch):
 
             return Wrapped()
 
-    conn._context = Passthrough()
+    if connection_type is PinnedHTTPS:
+        conn._context = Passthrough()
     start = time.monotonic()
     response = None
     try:
@@ -586,6 +607,68 @@ def test_body_deadline_survives_http_connection_close(monkeypatch):
 
 
 @pytest.mark.parametrize(
+    "url,connection_name,port",
+    [
+        ("http://example.test/v1", "PinnedHTTP", 80),
+        ("http://example.test:8080/api/v1", "PinnedHTTP", 8080),
+        ("https://example.test/v1", "PinnedHTTPS", 443),
+        ("https://example.test:8443/api/v1", "PinnedHTTPS", 8443),
+    ],
+)
+def test_adapter_uses_configured_protocol_and_port(monkeypatch, url, connection_name, port):
+    import app.llm_adapter as adapter
+
+    events = []
+
+    def resolve(host, actual_port, **kwargs):
+        assert (host, actual_port) == ("example.test", port)
+        return "1.1.1.1"
+
+    class Response:
+        status = 200
+
+        def getheader(self, name, default=None):
+            return default
+
+        def read(self, *_):
+            return json.dumps(dict(choices=[dict(finish_reason="stop", message=dict(content="ok"))])).encode()
+
+        def close(self):
+            events.append("response_closed")
+
+    class Connection:
+        def __init__(self, host, actual_port, address, deadline):
+            assert (host, actual_port, address) == ("example.test", port, "1.1.1.1")
+            assert deadline > time.monotonic()
+
+        def request(self, method, path, body, headers):
+            assert method == "POST"
+            assert path == ("/api/v1" if "/api/v1" in url else "/v1") + "/chat/completions"
+            assert headers["Authorization"] == "Bearer " + SECRET
+            assert json.loads(body)["model"] == "x"
+
+        def getresponse(self):
+            return Response()
+
+        def finish(self):
+            events.append("connection_closed")
+
+    def unexpected_connection(*args):
+        pytest.fail("Used the wrong transport for the configured protocol")
+
+    monkeypatch.setattr(adapter, "public_address", resolve)
+    monkeypatch.setattr(adapter, connection_name, Connection)
+    other = "PinnedHTTPS" if connection_name == "PinnedHTTP" else "PinnedHTTP"
+    monkeypatch.setattr(adapter, other, unexpected_connection)
+    reply = chat(
+        dict(timeout_seconds=5, base_url=url, model="x", max_tokens=512, json_mode=False, api_key=SECRET),
+        [],
+    )
+    assert reply.content == "ok"
+    assert events == ["response_closed", "connection_closed"]
+
+
+@pytest.mark.parametrize(
     "status,reason,content,error",
     [
         (302, "stop", "{}", "LLM_REDIRECT_BLOCKED"),
@@ -595,7 +678,8 @@ def test_body_deadline_survives_http_connection_close(monkeypatch):
         (200, "tool_calls", "{}", "LLM_OUTPUT_REJECTED"),
     ],
 )
-def test_adapter_protocol_rejections(monkeypatch, status, reason, content, error):
+@pytest.mark.parametrize("scheme", ["http", "https"])
+def test_adapter_protocol_rejections(monkeypatch, status, reason, content, error, scheme):
     import app.llm_adapter as adapter
 
     class Response:
@@ -629,12 +713,12 @@ def test_adapter_protocol_rejections(monkeypatch, status, reason, content, error
             pass
 
     monkeypatch.setattr(adapter, "public_address", lambda *a, **kw: "1.1.1.1")
-    monkeypatch.setattr(adapter, "PinnedHTTPS", Connection)
+    monkeypatch.setattr(adapter, "PinnedHTTPS" if scheme == "https" else "PinnedHTTP", Connection)
     with pytest.raises(ModelFailure) as raised:
         chat(
             dict(
                 timeout_seconds=5,
-                base_url="https://example.test/v1",
+                base_url=f"{scheme}://example.test/v1",
                 model="x",
                 max_tokens=512,
                 json_mode=False,
@@ -660,6 +744,12 @@ def test_device_can_read_details_but_cannot_manage_model(admin):
     code = admin.post("/api/v1/admin/devices/pairing-codes").json()["code"]
     device = admin.post("/api/v1/device/pair", json=dict(code=code, name="合成安卓设备")).json()
     headers = {"Authorization": "Bearer " + device["token"]}
+    assert (
+        admin.request(
+            "DELETE", "/api/v1/admin/model-config", headers=headers, json={"expected_version": 1}
+        ).status_code
+        == 403
+    )
     response = admin.get(f"/api/v1/app/statements/{published['id']}", headers=headers)
     assert response.status_code == 200
     data = response.json()
@@ -770,19 +860,22 @@ def test_auto_queue_backlog_is_explicit_and_full_queue_nonblocking(admin):
 
 
 @pytest.mark.parametrize("target", ["127.0.0.1", "10.0.0.1", "169.254.169.254", "::1"])
-def test_adapter_private_dns_does_not_connect(monkeypatch, target):
+@pytest.mark.parametrize("scheme", ["http", "https"])
+def test_adapter_private_dns_does_not_connect(monkeypatch, target, scheme):
     import app.llm_adapter as adapter
 
     called = []
     monkeypatch.setattr(
         socket, "getaddrinfo", lambda *a, **kw: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (target, 443))]
     )
-    monkeypatch.setattr(adapter, "PinnedHTTPS", lambda *a: called.append(a))
+    monkeypatch.setattr(
+        adapter, "PinnedHTTPS" if scheme == "https" else "PinnedHTTP", lambda *a: called.append(a)
+    )
     with pytest.raises(ModelFailure) as raised:
         chat(
             dict(
                 timeout_seconds=5,
-                base_url="https://example.test/v1",
+                base_url=f"{scheme}://example.test/v1",
                 model="x",
                 max_tokens=512,
                 json_mode=False,
@@ -812,3 +905,135 @@ def test_model_instruction_text_does_not_grant_tools(admin):
     assert "删除账单" in messages[1]["content"]
     assert SECRET not in messages[1]["content"]
     assert admin.get("/api/v1/admin/statements").json()["total"] == 0
+
+
+@pytest.mark.parametrize("key_mode", ["omitted", "null"])
+def test_edit_existing_https_config_to_http_keeps_key(admin, key_mode):
+    original = config(admin)
+    with admin.app.state.sessions() as db:
+        ciphertext = db.get(ModelConfig, "primary").key_ciphertext
+    data = dict(
+        expected_version=original["version"],
+        base_url="http://23.169.184.101:8317/v1",
+        model="synthetic-edited-model",
+        active=True,
+    )
+    if key_mode == "null":
+        data["api_key"] = None
+    response = admin.put("/api/v1/admin/model-config", json=data)
+    assert response.status_code == 200, response.text
+    assert response.json()["base_url"] == data["base_url"]
+    assert response.json()["version"] == original["version"] + 1
+    with admin.app.state.sessions() as db:
+        assert db.get(ModelConfig, "primary").key_ciphertext == ciphertext
+
+
+def delete_model(c, version):
+    return c.request("DELETE", "/api/v1/admin/model-config", json={"expected_version": version})
+
+
+def test_delete_model_clears_secrets_and_preserves_history(admin):
+    original = config(admin, privacy_values=["测试持卡人"])
+    a = account(admin)
+    statement = make_statement(admin, account=a)
+    run = parse(admin, prepared(admin), FakeModel(result()))
+    calls_before = admin.get("/api/v1/admin/model-calls").json()["total"]
+    response = delete_model(admin, original["version"])
+    assert response.status_code == 200, response.text
+    assert response.json() == {"configured": False, "version": original["version"] + 1}
+    status = admin.get("/api/v1/admin/model-config").json()
+    assert status["config"] == response.json()
+    assert status["usage"]["reserved_calls"] == calls_before
+    assert detail(admin, statement["id"])["id"] == statement["id"]
+    assert admin.get("/api/v1/admin/model-runs/" + run["id"]).json()["state"] == "succeeded"
+    assert admin.get("/api/v1/admin/model-calls").json()["total"] == calls_before
+    with admin.app.state.sessions() as db:
+        row = db.get(ModelConfig, "primary")
+        assert row.base_url == row.model == row.key_ciphertext == row.privacy_ciphertext == ""
+        assert not row.active and not row.auto_parse and row.auto_publish_profiles == "[]"
+        event = db.scalar(select(AuditEvent).where(AuditEvent.action == "model.config_deleted"))
+        assert event is not None and SECRET not in event.detail
+    assert admin.post("/api/v1/admin/model-config/test").status_code == 409
+
+
+def test_delete_model_keeps_pending_candidate(admin):
+    original = config(admin)
+    account(admin)
+    run = parse(admin, prepared(admin), FakeModel())
+    before = candidate(admin, run)
+    assert delete_model(admin, original["version"]).status_code == 200
+    assert candidate(admin, run) == before
+
+
+def test_delete_model_cancels_queued_and_retry_wait_tasks(admin):
+    original = config(admin)
+    source = prepared(admin)
+    run = admin.post(f"/api/v1/admin/sources/{source['id']}/parse", json={"force": False}).json()
+    test_task = admin.post("/api/v1/admin/model-config/test").json()
+    with transaction(admin.app.state.sessions) as db:
+        db.get(Task, test_task["id"]).state = "retry_wait"
+    assert delete_model(admin, original["version"]).status_code == 200
+    with admin.app.state.sessions() as db:
+        for task_id in [run["task"]["id"], test_task["id"]]:
+            task = db.get(Task, task_id)
+            assert task.state == "cancelled" and task.active_key is None
+            assert task.error_code == "LLM_CONFIG_CHANGED"
+    assert admin.get("/api/v1/admin/model-runs/" + run["id"]).json()["state"] == "cancelled"
+    fake = FakeModel()
+    drain(Worker(admin.app.state.settings, admin.app.state.sessions, model_client=fake))
+    assert fake.calls == []
+    assert admin.post(f"/api/v1/admin/sources/{source['id']}/parse", json={"force": False}).status_code == 409
+
+
+def test_delete_model_rejects_stale_version_and_requires_new_key(admin):
+    first = config(admin)
+    second = config(admin, api_key=None)
+    assert delete_model(admin, first["version"]).status_code == 409
+    assert admin.get("/api/v1/admin/model-config").json()["config"]["version"] == second["version"]
+    deleted = delete_model(admin, second["version"]).json()
+    data = dict(expected_version=deleted["version"], base_url="http://example.test/v1", model="new")
+    assert admin.put("/api/v1/admin/model-config", json=data).status_code == 422
+    data["api_key"] = SECRET
+    data["expected_version"] = first["version"]
+    assert admin.put("/api/v1/admin/model-config", json=data).status_code == 409
+    fresh = config(admin, base_url="http://example.test/v1")
+    assert fresh["version"] > deleted["version"] > second["version"]
+    with admin.app.state.sessions() as db:
+        assert (
+            decrypt_secret(admin.app.state.settings, db.get(ModelConfig, "primary").privacy_ciphertext)
+            == "[]"
+        )
+
+
+def test_delete_model_requires_csrf_and_version(admin):
+    original = config(admin)
+    response = admin.request(
+        "DELETE",
+        "/api/v1/admin/model-config",
+        headers={"X-CSRF-Token": "wrong"},
+        json={"expected_version": original["version"]},
+    )
+    assert response.status_code == 403
+    assert admin.request("DELETE", "/api/v1/admin/model-config", json={}).status_code == 422
+    assert admin.get("/api/v1/admin/model-config").json()["config"]["configured"]
+
+
+@pytest.mark.parametrize("readd", [False, True])
+def test_delete_during_call_prevents_old_result_submission(admin, readd):
+    original = config(admin)
+    source = prepared(admin)
+
+    def change_configuration():
+        assert delete_model(admin, original["version"]).status_code == 200
+        if readd:
+            assert config(admin)["version"] > original["version"]
+
+    fake = FakeModel(callback=change_configuration)
+    run = parse(admin, source, fake)
+    assert run["state"] == "cancelled"
+    assert run["error_code"] == ("LLM_CONFIG_CHANGED" if readd else "LLM_NOT_CONFIGURED")
+    assert run["candidate_ids"] == []
+    assert admin.get("/api/v1/admin/model-calls").json()["total"] == 1
+    if readd:
+        new_run = parse(admin, source, FakeModel())
+        assert new_run["id"] != run["id"] and new_run["state"] == "succeeded"

@@ -42,11 +42,9 @@ class ModelReply:
     output_tokens: int | None = None
 
 
-class PinnedHTTPS(http.client.HTTPSConnection):
+class PinnedHTTP(http.client.HTTPConnection):
     def __init__(self, host, port, address, deadline):
-        super().__init__(
-            host, port, timeout=max(0.01, deadline - time.monotonic()), context=ssl.create_default_context()
-        )
+        super().__init__(host, port, timeout=max(0.01, deadline - time.monotonic()))
         self.address, self.deadline = address, deadline
         self.timer = None
         self.deadline_socket = None
@@ -69,19 +67,9 @@ class PinnedHTTPS(http.client.HTTPSConnection):
         self.timer = threading.Timer(max(0.01, self.deadline - time.monotonic()), abort)
         self.timer.daemon = True
         self.timer.start()
-        try:
-            self.sock = self._context.wrap_socket(
-                self.sock, server_hostname=self.host, do_handshake_on_connect=False
-            )
-            self.deadline_socket = self.sock
-            self.sock.settimeout(max(0.01, self.deadline - time.monotonic()))
-            self.sock.do_handshake()
-            if time.monotonic() >= self.deadline:
-                abort()
-                raise TimeoutError()
-        except Exception:
+        if time.monotonic() >= self.deadline:
             self.finish()
-            raise
+            raise TimeoutError()
 
     def finish(self):
         """Keep the deadline alive after getresponse transfers socket ownership."""
@@ -93,12 +81,38 @@ class PinnedHTTPS(http.client.HTTPSConnection):
             self.deadline_socket = None
 
 
+class PinnedHTTPS(PinnedHTTP):
+    default_port = http.client.HTTPS_PORT
+
+    def __init__(self, host, port, address, deadline):
+        super().__init__(host, port, address, deadline)
+        self._context = ssl.create_default_context()
+
+    def connect(self):
+        super().connect()
+        try:
+            self.sock = self._context.wrap_socket(
+                self.sock, server_hostname=self.host, do_handshake_on_connect=False
+            )
+            self.deadline_socket = self.sock
+            self.sock.settimeout(max(0.01, self.deadline - time.monotonic()))
+            self.sock.do_handshake()
+            if time.monotonic() >= self.deadline:
+                raise TimeoutError()
+        except Exception:
+            self.finish()
+            raise
+
+
 def chat(config, messages) -> ModelReply:
     """Bounded response and absolute DNS + request deadline. Never expose provider errors."""
     deadline = time.monotonic() + config["timeout_seconds"]
     u = urlsplit(config["base_url"])
+    if u.scheme not in {"http", "https"}:
+        raise ModelFailure("LLM_TARGET_BLOCKED", "模型基础地址仅支持 HTTP 或 HTTPS")
+    port = u.port or (443 if u.scheme == "https" else 80)
     try:
-        address = public_address(u.hostname, u.port or 443, timeout=max(0.01, deadline - time.monotonic()))
+        address = public_address(u.hostname, port, timeout=max(0.01, deadline - time.monotonic()))
     except MailFailure as error:
         code = "LLM_TARGET_BLOCKED" if error.code == "MAIL_TARGET_BLOCKED" else "LLM_DNS_FAILED"
         raise ModelFailure(
@@ -107,7 +121,8 @@ def chat(config, messages) -> ModelReply:
     payload = dict(model=config["model"], messages=messages, stream=False, max_tokens=config["max_tokens"])
     if config["json_mode"]:
         payload["response_format"] = {"type": "json_object"}
-    connection = PinnedHTTPS(u.hostname, u.port or 443, address, deadline)
+    connection_type = PinnedHTTPS if u.scheme == "https" else PinnedHTTP
+    connection = connection_type(u.hostname, port, address, deadline)
     response = None
     try:
         connection.request(
@@ -126,7 +141,9 @@ def chat(config, messages) -> ModelReply:
             if response.status in {401, 403}:
                 raise ModelFailure("LLM_AUTH_FAILED", "模型凭证或权限被拒绝，请检查配置")
             if 300 <= response.status < 400:
-                raise ModelFailure("LLM_REDIRECT_BLOCKED", "模型重定向已拒绝，请填写最终 HTTPS 基础地址")
+                raise ModelFailure(
+                    "LLM_REDIRECT_BLOCKED", "模型重定向已拒绝，请填写最终 HTTP 或 HTTPS 基础地址"
+                )
             raise ModelFailure(
                 "LLM_RATE_LIMITED" if response.status == 429 else "LLM_HTTP_FAILED",
                 "模型服务返回非成功状态",

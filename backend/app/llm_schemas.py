@@ -23,10 +23,17 @@ Tail = Annotated[str, Field(pattern=r"^[0-9]{4}$")]
 
 def normalize_base(value: str) -> str:
     if any(ord(c) < 33 or ord(c) > 126 for c in value):
-        raise ValueError("模型基础地址必须为无空白的 HTTPS URL")
+        raise ValueError("模型基础地址必须为无空白的 HTTP 或 HTTPS URL")
     u = urlsplit(value)
-    if u.scheme != "https" or not u.hostname or u.username or u.password or u.query or u.fragment:
-        raise ValueError("仅允许 HTTPS 地址，不允许 URL 凭证、查询参数或片段")
+    if (
+        u.scheme not in {"http", "https"}
+        or not u.hostname
+        or u.username
+        or u.password
+        or u.query
+        or u.fragment
+    ):
+        raise ValueError("仅允许 HTTP 或 HTTPS 地址，不允许 URL 凭证、查询参数或片段")
     if u.port is not None and not 1 <= u.port <= 65535:
         raise ValueError("端口无效")
     try:
@@ -43,7 +50,7 @@ def normalize_base(value: str) -> str:
         path = path[: -len("/chat/completions")]
     if not path.endswith("/v1"):
         path += "/v1"
-    return urlunsplit(("https", u.netloc.lower(), path, "", ""))
+    return urlunsplit((u.scheme, u.netloc.lower(), path, "", ""))
 
 
 class PublishProfile(Input):
@@ -52,6 +59,10 @@ class PublishProfile(Input):
     prompt_version: Literal["bill-prompt-v1"] = PROMPT_VERSION
     converter_version: Literal["generic-v1"] = "generic-v1"
     verified: Literal[True]
+
+
+class DeleteModelConfigRequest(Input):
+    expected_version: Annotated[int, Field(ge=1)]
 
 
 class ModelConfigInput(Input):

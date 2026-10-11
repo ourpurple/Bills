@@ -41,7 +41,7 @@ test('P3: configure → model candidate → review → publish → details → r
     configuration
       .locator('.el-form-item')
       .filter({ has: page.locator('.el-form-item__label', { hasText: label }) })
-  await field('HTTPS 基础地址').locator('input').fill('https://models.example.test/v1')
+  await field('HTTP / HTTPS 基础地址').locator('input').fill('http://models.example.test:8080/v1')
   await field('模型名称').locator('input').fill('synthetic-review-v1')
   await field('API Key').locator('input').fill('browser-synthetic-not-real')
   await configuration.locator('.el-checkbox').filter({ hasText: '启用模型' }).click()
@@ -49,6 +49,9 @@ test('P3: configure → model candidate → review → publish → details → r
   await expect(configuration).not.toBeVisible()
   await expect(page.getByText('自动发送关闭', { exact: false })).toBeVisible()
   await page.getByRole('button', { name: '配置模型', exact: true }).click()
+  await expect(field('HTTP / HTTPS 基础地址').locator('input')).toHaveValue(
+    'http://models.example.test:8080/v1',
+  )
   await expect(field('API Key').locator('input')).toHaveValue('')
   await configuration.getByRole('button', { name: '取消', exact: true }).click()
   await page.getByRole('link', { name: '邮箱与导入' }).click()
@@ -117,6 +120,8 @@ test('P3: configure → model candidate → review → publish → details → r
   await archive.getByRole('button', { name: '关闭此对话框' }).click()
   await page.getByRole('link', { name: '模型与核对' }).click()
   await page.getByRole('button', { name: '配置模型', exact: true }).click()
+  await field('HTTP / HTTPS 基础地址').locator('input').fill('http://models.example.test:8317/v1')
+  await expect(field('API Key').locator('input')).toHaveValue('')
   await field('模型名称').locator('input').fill('synthetic-review-v2')
   await configuration.getByRole('button', { name: '保存模型配置' }).click()
   await expect(configuration).not.toBeVisible()
@@ -140,5 +145,34 @@ test('P3: configure → model candidate → review → publish → details → r
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(
     false,
   )
+  await page.setViewportSize({ width: 1280, height: 900 })
+  const currentConfig = (await (await page.request.get('/api/v1/admin/model-config')).json()).config
+  expect(currentConfig.base_url).toBe('http://models.example.test:8317/v1')
+  await page.getByRole('button', { name: '删除模型', exact: true }).click()
+  await page.locator('.el-message-box').getByRole('button', { name: '取消', exact: true }).click()
+  await expect(page.getByRole('button', { name: '删除模型', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '配置模型', exact: true }).click()
+  await configuration.getByRole('button', { name: '删除模型', exact: true }).click()
+  await page
+    .locator('.el-message-box')
+    .getByRole('button', { name: '确认删除', exact: true })
+    .click()
+  await expect(configuration).not.toBeVisible()
+  await expect(page.getByRole('heading', { name: '先配置你的模型服务' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '删除模型', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '测试连接', exact: true })).toBeDisabled()
+  expect(
+    (await (await page.request.get(`/api/v1/admin/statements/${statementId}`)).json()).id,
+  ).toBe(statementId)
+  await page.getByRole('button', { name: '配置模型', exact: true }).click()
+  await expect(field('HTTP / HTTPS 基础地址').locator('input')).toHaveValue('')
+  await expect(field('模型名称').locator('input')).toHaveValue('')
+  await expect(field('API Key').locator('input')).toHaveValue('')
+  await field('HTTP / HTTPS 基础地址').locator('input').fill('http://models.example.test:8080/v1')
+  await field('模型名称').locator('input').fill('synthetic-readded')
+  await field('API Key').locator('input').fill('browser-synthetic-new-key')
+  await configuration.getByRole('button', { name: '保存模型配置' }).click()
+  await expect(configuration).not.toBeVisible()
+  await expect(page.getByRole('heading', { name: 'synthetic-readded' })).toBeVisible()
   expect(errors).toEqual([])
 })
