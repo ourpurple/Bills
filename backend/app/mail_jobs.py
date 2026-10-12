@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from .core import DomainError, new_id, utc_naive
 from .mail_crypto import decrypt_secret
@@ -59,6 +59,39 @@ def enqueue(db, kind, *, mailbox=None, source=None, payload=None):
     db.add(row)
     db.flush()
     return row
+
+
+def queue_reprocess(db, source, mode):
+    kind = "mail_fetch" if mode == "refetch" else "prepare_input"
+    active = db.scalars(select(Task).where(Task.source_id == source.id, Task.state.in_(ACTIVE))).all()
+    for task in active:
+        if len(active) == 1 and task.kind == kind and json.loads(task.payload).get("source_reprocess"):
+            return task
+    if active:
+        raise DomainError("SOURCE_BUSY", "该来源正在处理，请等待当前任务完成后再操作", 409)
+    box = None
+    if mode == "refetch":
+        box = db.get(Mailbox, source.mailbox_id) if source.mailbox_id else None
+        if not box or source.protocol not in {"imap", "pop3"} or not source.remote_id:
+            raise DomainError("SOURCE_NOT_REFETCHABLE", "上传的资料不能重收，请重新转换或上传原邮件", 409)
+        if (source.sync_epoch, source.protocol, source.folder) != (box.sync_epoch, box.protocol, box.folder):
+            raise DomainError("MAIL_IDENTITY_CHANGED", "邮箱目标已变更，旧来源不能在新目标重收", 409)
+        if not box.active or box.paused_reason:
+            raise DomainError("MAILBOX_PAUSED", "请先启用邮箱、修正配置并测试连接，再重新收取", 409)
+    elif not source.raw_hash:
+        raise DomainError("SOURCE_UNAVAILABLE", "没有已保存的原文件，请重新收取邮件或上传资料", 409)
+    if db.scalar(select(func.count()).select_from(Task).where(Task.state.in_(ACTIVE))) >= 1000:
+        raise DomainError("QUEUE_FULL", "待执行任务较多，请等待 worker 处理", 429)
+    task = enqueue(
+        db,
+        kind,
+        mailbox=box,
+        source=source,
+        payload={"source_reprocess": True, "force_refetch": mode == "refetch"},
+    )
+    # Existing immutable blobs/model results stay intact, but cannot be presented as the new input.
+    source.state, source.reason, source.input_id = "pending", None, None
+    return task
 
 
 def source_identity(mailbox, uidvalidity, uid):
@@ -309,7 +342,7 @@ class Worker:
                     run.state, run.error_code = state, failure.code
             if row.source_id and row.kind in {"mail_fetch", "prepare_input"}:
                 source = db.get(MailSource, row.source_id)
-                if source and not cancelled:
+                if source and (not cancelled or json.loads(row.payload).get("source_reprocess")):
                     source.state, source.reason = (
                         "conversion_failed" if row.kind == "prepare_input" else "fetch_failed",
                         failure.code,
@@ -510,6 +543,8 @@ class Worker:
 
     def fetch_one(self, task):
         config, args = self.snapshot(task), json.loads(task.payload)
+        if args.get("force_refetch"):
+            return self.refetch_one(task, config)
         start, end = self.range_for(config, args)
         with transaction(self.sessions) as db:
             source = db.get(MailSource, task.source_id)
@@ -536,6 +571,47 @@ class Worker:
                 "succeeded" if source.state in {"pending", "ready", "partial", "skipped"} else "unsupported",
             )
 
+    def refetch_one(self, task, config):
+        with transaction(self.sessions) as db:
+            row = owned(db, task.id, task.lease_token)
+            box = guard_mailbox(db, row)
+            source = db.get(MailSource, row.source_id)
+            if (source.sync_epoch, source.protocol, source.folder) != (
+                box.sync_epoch,
+                box.protocol,
+                box.folder,
+            ):
+                raise DomainError("MAIL_IDENTITY_CHANGED", "邮箱目标已变更，旧来源不能在新目标重收", 409)
+            uid, expected_validity = source.remote_id, source.uidvalidity
+        # Explicit single-source recovery ignores scan dates/filters and never moves the scan cursor.
+        with self.connection_factory(config, self.settings) as connection:
+            if config["protocol"] == "imap" and connection.uidvalidity != expected_validity:
+                raise MailFailure(
+                    "MAIL_UIDVALIDITY_CHANGED",
+                    "UIDVALIDITY 已变化，旧来源不能按旧 UID 重收",
+                    unsupported=True,
+                )
+            _, size, cached = connection.headers(uid)
+            if size > self.settings.mail_max_bytes:
+                raise MailFailure("MAIL_TOO_LARGE", "邮件超过字节数上限", unsupported=True)
+            data = cached if cached is not None else connection.fetch(uid)
+            if len(data) > self.settings.mail_max_bytes:
+                raise MailFailure("MAIL_TOO_LARGE", "邮件超过字节数上限", unsupported=True)
+        info = metadata(data)
+        with transaction(self.sessions) as db:
+            row = owned(db, task.id, task.lease_token)
+            guard_mailbox(db, row)
+            source = db.get(MailSource, row.source_id)
+            raw_hash = write_blob(self.settings, data)
+            for key, value in info.items():
+                setattr(source, key, value)
+            source.raw_hash, source.size_bytes = raw_hash, len(data)
+            source.state, source.reason, source.input_id = "pending", None, None
+            conversion = enqueue(db, "prepare_input", source=source, payload={"source_reprocess": True})
+            row.result = json.dumps(dict(conversion_task_id=conversion.id, llm_parsed=False))
+            finish_row(row, "succeeded")
+            audit(db, "worker", "source.refetched", source.id)
+
     def prepare(self, task):
         with transaction(self.sessions) as db:
             row = owned(db, task.id, task.lease_token)
@@ -555,6 +631,7 @@ class Worker:
                 )
                 content = PreparedInput(
                     id=result["id"],
+                    converter_version=result["version"],
                     state=result["state"],
                     warnings=json.dumps(result["warnings"]),
                     text_chars=result["text_chars"],

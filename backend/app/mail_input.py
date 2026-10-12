@@ -6,6 +6,7 @@ HTML is reduced to plain text; links/images/scripts/forms are never executed.
 
 from __future__ import annotations
 
+import codecs
 import hashlib
 import io
 import json
@@ -22,7 +23,7 @@ from pypdf import PdfReader
 from .core import DomainError
 from .mail_storage import blob_path
 
-CONVERTER_VERSION = "generic-v1"
+CONVERTER_VERSION = "generic-v2"
 
 
 def metadata(data: bytes):
@@ -107,6 +108,21 @@ def convert_bytes(data: bytes, media_type: str, limits: dict) -> dict:
         try:
             return payload.decode(charset, errors="strict")
         except (UnicodeError, LookupError):
+            # Strict, bounded compatibility attempts; never discard/replace undecodable bytes.
+            candidates = ["utf-8-sig"]
+            try:
+                declared = codecs.lookup(charset).name
+            except LookupError:
+                declared = ""
+            if declared in {"gb2312", "gbk"}:
+                candidates.append("gb18030")
+            for candidate in candidates:
+                try:
+                    text = payload.decode(candidate, errors="strict")
+                except UnicodeError:
+                    continue
+                warnings.append("TEXT_CHARSET_FALLBACK")
+                return text
             warnings.append("TEXT_DECODE_FAILED")
             return ""
 
@@ -135,13 +151,16 @@ def convert_bytes(data: bytes, media_type: str, limits: dict) -> dict:
                         children = list(part.iter_parts())
                         if part.get_content_subtype() == "alternative":
                             # Prefer one representation, avoiding doubled body text.
-                            chosen = next((p for p in children if p.get_content_type() == "text/plain"), None)
-                            if chosen is None:
-                                chosen = next(
-                                    (p for p in children if p.get_content_type() == "text/html"), None
-                                )
-                            if chosen is not None:
-                                walk(chosen)
+                            candidates = [p for p in children if p.get_content_type() == "text/plain"]
+                            candidates += [p for p in children if p.get_content_type() == "text/html"]
+                            if candidates:
+                                for index, child in enumerate(candidates):
+                                    before = len(parts)
+                                    walk(child)
+                                    if len(parts) > before:
+                                        if index:
+                                            warnings.append("TEXT_ALTERNATIVE_FALLBACK")
+                                        break
                             else:
                                 for child in children:
                                     walk(child)

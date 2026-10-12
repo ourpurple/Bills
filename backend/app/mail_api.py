@@ -11,8 +11,8 @@ from sqlalchemy import func, select
 from .core import DomainError, utc_naive
 from .mail_crypto import encrypt_secret
 from .mail_input import metadata
-from .mail_jobs import ACTIVE, enqueue, queue_retry
-from .mail_schemas import MailboxConfig, ScanRange
+from .mail_jobs import ACTIVE, enqueue, queue_reprocess, queue_retry
+from .mail_schemas import MailboxConfig, ScanRange, SourceReprocess
 from .mail_storage import content_hash, read_blob, write_blob
 from .models import Mailbox, MailSource, Task, WorkerHeartbeat
 from .security import administrator, audit, get_db
@@ -339,6 +339,19 @@ async def upload_source(
         task=task_json(task) if task else None,
         duplicate=duplicate,
     )
+
+
+@router.post("/sources/{object_id}/reprocess", status_code=202)
+def reprocess_source(
+    object_id: str,
+    body: SourceReprocess,
+    db=Depends(get_db, scope="function"),
+    actor=Depends(administrator, scope="function"),
+):
+    source = require(db, MailSource, object_id)
+    task = queue_reprocess(db, source, body.mode)
+    audit(db, actor.id, "source." + body.mode + "_queued", source.id)
+    return task_json(task)
 
 
 @router.get("/sources/{object_id}/preview")

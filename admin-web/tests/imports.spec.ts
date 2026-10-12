@@ -66,7 +66,15 @@ test('P2: inactive mailbox, upload, worker conversion, safe preview and narrow l
   ).toBeUndefined()
   expect(external).toEqual([])
   expect(pageErrors).toEqual([])
-  await preview.getByRole('button', { name: '关闭此对话框' }).click()
+  await expect(preview.getByRole('button', { name: '重新收取并转换', exact: true })).toHaveCount(0)
+  await preview.getByRole('button', { name: '重新转换', exact: true }).click()
+  const confirmation = page.getByRole('dialog', { name: '重新转换', exact: true })
+  await expect(confirmation).toContainText('不连接邮箱')
+  await confirmation.getByRole('button', { name: '确定', exact: true }).click()
+  await expect(preview).not.toBeVisible()
+  await expect(page.getByText('重新转换任务已排队', { exact: true })).toBeVisible()
+  await expect(row).toContainText('文本已准备', { timeout: 20000 })
+  await expect(row).toHaveCount(1)
   await page.getByLabel('选择资料文件').setInputFiles(upload)
   await expect(page.getByText('该资料已经导入，不重复创建来源')).toBeVisible()
   await expect(row).toHaveCount(1)
@@ -83,9 +91,76 @@ test('P2: inactive mailbox, upload, worker conversion, safe preview and narrow l
   await page.getByRole('link', { name: '邮箱与导入' }).click()
   await expect(page.getByRole('tab', { name: '任务队列' })).toHaveCount(0)
   await page.getByRole('tab', { name: '来源资料' }).click()
-  await page.screenshot({ path: '../docs/screenshots/imports.png', fullPage: true })
+  await page.screenshot({ path: test.info().outputPath('imports.png'), fullPage: true })
   await page.setViewportSize({ width: 390, height: 844 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(
     false,
   )
+})
+
+test('source recovery: refetch confirmation queues the selected email without model calls', async ({
+  page,
+}) => {
+  const source = {
+    id: 'synthetic-refetch-source',
+    mailbox_id: 'synthetic-mailbox',
+    filename: '',
+    subject: '合成邮件 · 解码失败',
+    sender: 'synthetic@example.test',
+    state: 'unsupported',
+    reason: 'INPUT_UNSUPPORTED',
+    size_bytes: 1024,
+    created_at: '2026-10-12T10:00:00+08:00',
+    input_id: 'synthetic-input',
+    raw_available: true,
+  }
+  const operations: unknown[] = []
+  await page.route('**/api/v1/admin/sources?*', async (route) => {
+    await route.fulfill({ json: { items: [source], total: 1, page: 1, page_size: 20 } })
+  })
+  await page.route('**/api/v1/admin/sources/synthetic-refetch-source/preview', async (route) => {
+    await route.fulfill({
+      json: {
+        source,
+        input: { state: 'unsupported', warnings: ['NO_TEXT', 'TEXT_DECODE_FAILED'], parts: [] },
+      },
+    })
+  })
+  await page.route('**/api/v1/admin/sources/synthetic-refetch-source/reprocess', async (route) => {
+    operations.push(route.request().postDataJSON())
+    source.state = 'pending'
+    source.reason = ''
+    source.input_id = ''
+    await route.fulfill({
+      status: 202,
+      json: { id: 'synthetic-refetch-task', kind: 'mail_fetch', state: 'queued' },
+    })
+  })
+  const modelRequests: string[] = []
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && request.url().includes('/parse'))
+      modelRequests.push(request.url())
+  })
+  await page.goto('/login')
+  await page.getByLabel('用户名', { exact: true }).fill('e2e-admin')
+  await page.locator('#login-password').fill('browser-test-only-2026')
+  await page.getByRole('button', { name: '进入工作台' }).click()
+  await page.getByRole('link', { name: '邮箱与导入' }).click()
+  await page.getByRole('tab', { name: '来源资料' }).click()
+  const row = page.getByRole('row').filter({ hasText: source.subject })
+  await row.getByRole('button', { name: '安全预览', exact: true }).click()
+  const preview = page.getByRole('dialog', { name: '安全资料预览 · 不是账单解析结果' })
+  await expect(preview).toContainText('正文字符解码失败')
+  await preview.getByRole('button', { name: '重新收取并转换', exact: true }).click()
+  const confirmation = page.getByRole('dialog', { name: '重新收取并转换', exact: true })
+  await expect(confirmation).toContainText('从原邮箱重新下载这一封邮件')
+  await confirmation.getByRole('button', { name: '取消', exact: true }).click()
+  expect(operations).toEqual([])
+  await preview.getByRole('button', { name: '重新收取并转换', exact: true }).click()
+  await confirmation.getByRole('button', { name: '确定', exact: true }).click()
+  await expect(preview).not.toBeVisible()
+  await expect(row).toContainText('等待转换')
+  expect(operations).toEqual([{ mode: 'refetch' }])
+  expect(modelRequests).toEqual([])
+  await expect(row.getByRole('button', { name: '重新收取并转换', exact: true })).toBeDisabled()
 })

@@ -37,6 +37,7 @@ interface Source {
   size_bytes: number
   created_at: string
   input_id: string | null
+  raw_available: boolean
 }
 interface Health {
   master_key_configured: boolean
@@ -93,6 +94,7 @@ const range = ref<string[]>([]),
   preview = ref<Preview | null>(null),
   previewOpen = ref(false)
 const actionBusy = ref('')
+const reprocessBusy = ref('')
 let timer: ReturnType<typeof setInterval> | undefined
 const defaults = () => ({
   name: '',
@@ -295,6 +297,47 @@ async function identify(row: Source, force = false) {
     ElMessage.error((e as Error).message)
   }
 }
+function warningText(code: string) {
+  const messages: Record<string, string> = {
+    NO_TEXT: '未提取到可用文字',
+    TEXT_DECODE_FAILED: '正文字符解码失败，可尝试重新转换',
+    TEXT_CHARSET_FALLBACK: '已使用兼容字符编码，请核对正文',
+    TEXT_ALTERNATIVE_FALLBACK: '已改用备用正文，请核对内容',
+    PDF_ENCRYPTED: 'PDF 附件已加密，需要先解密',
+    ATTACHMENT_UNSUPPORTED: '有附件暂不支持转换',
+    TEXT_TRUNCATED: '文字超过上限，内容已截断',
+  }
+  return messages[code] || code
+}
+async function reprocess(row: Source, mode: 'reconvert' | 'refetch') {
+  if (reprocessBusy.value) return
+  const refetch = mode === 'refetch'
+  try {
+    await ElMessageBox.confirm(
+      refetch
+        ? '将从原邮箱重新下载这一封邮件并转换，不会重复创建来源。本操作只收取和转换，自动模型识别仍遵循现有配置。原邮件需要仍在服务器上；若编码或文件格式仍不支持，可能仍需补充资料。'
+        : '将使用已保存的原文件重新转换，不连接邮箱；自动模型识别仍遵循现有配置。已有模型结果和已确认账单会保留。',
+      refetch ? '重新收取并转换' : '重新转换',
+      { type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  reprocessBusy.value = row.id
+  try {
+    await api(`/admin/sources/${row.id}/reprocess`, 'POST', { mode })
+    if (preview.value?.source.id === row.id) {
+      previewOpen.value = false
+      preview.value = null
+    }
+    ElMessage.success(refetch ? '重新收取任务已排队，下载后会自动转换' : '重新转换任务已排队')
+    await load()
+  } catch (e) {
+    ElMessage.error((e as Error).message)
+  } finally {
+    reprocessBusy.value = ''
+  }
+}
 async function showPreview(row: Source) {
   try {
     preview.value = await api<Preview>(`/admin/sources/${row.id}/preview`)
@@ -474,6 +517,19 @@ onUnmounted(() => {
                 text
                 @click="identify(row, true)"
                 >重新识别</el-button
+              ><el-button
+                v-if="row.raw_available"
+                text
+                :disabled="row.state === 'pending' || !!reprocessBusy"
+                :loading="reprocessBusy === row.id"
+                @click="reprocess(row, 'reconvert')"
+                >重新转换</el-button
+              ><el-button
+                v-if="row.mailbox_id"
+                text
+                :disabled="row.state === 'pending' || !!reprocessBusy"
+                @click="reprocess(row, 'refetch')"
+                >重新收取并转换</el-button
               ></template
             ></el-table-column
           ></el-table
@@ -591,14 +647,30 @@ onUnmounted(() => {
       />
       <p class="section-gap">{{ preview.source.subject || preview.source.filename }}</p>
       <p v-if="preview.input.warnings.length" class="import-error">
-        注意：{{ preview.input.warnings.join(' / ') }}
+        注意：{{ preview.input.warnings.map(warningText).join(' / ') }}
       </p>
+      <div class="section-gap">
+        <el-button
+          v-if="preview.source.raw_available"
+          :disabled="preview.source.state === 'pending' || !!reprocessBusy"
+          :loading="reprocessBusy === preview.source.id"
+          @click="reprocess(preview.source, 'reconvert')"
+          >重新转换</el-button
+        >
+        <el-button
+          v-if="preview.source.mailbox_id"
+          :disabled="preview.source.state === 'pending' || !!reprocessBusy"
+          @click="reprocess(preview.source, 'refetch')"
+          >重新收取并转换</el-button
+        >
+      </div>
       <section v-for="(part, index) in preview.input.parts" :key="index" class="section-gap">
         <h3>{{ part.name }} · {{ part.media_type }}</h3>
         <pre class="source-text">{{ part.text }}</pre>
       </section>
       <p v-if="!preview.input.parts.length">
-        没有可转换文本，请上传已解密的文本型 PDF 或手工录入账单。
+        没有可转换文本。可先尝试重新转换或重新收取邮件；若仍无文本，请上传已解密的文本型 PDF
+        或手工录入账单。
       </p></template
     ></el-drawer
   >

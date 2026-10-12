@@ -57,7 +57,7 @@ class PublishProfile(Input):
     bank_code: Annotated[str, Field(pattern=r"^[a-z][a-z0-9_-]{1,31}$")]
     media_type: Literal["message/rfc822", "application/pdf"]
     prompt_version: Literal["bill-prompt-v1"] = PROMPT_VERSION
-    converter_version: Literal["generic-v1"] = "generic-v1"
+    converter_version: Literal["generic-v1", "generic-v2"] = "generic-v2"
     verified: Literal[True]
 
 

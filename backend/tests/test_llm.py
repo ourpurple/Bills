@@ -1054,3 +1054,17 @@ def test_delete_account_with_import_candidate_preserves_candidate_and_cards(admi
         event["action"].endswith(".deleted")
         for event in admin.get("/api/v1/admin/audit-events").json()["items"]
     )
+
+
+def test_old_converter_publish_profile_requires_new_version_verification(admin):
+    profile = dict(
+        bank_code="cmb", media_type="message/rfc822", converter_version="generic-v1", verified=True
+    )
+    config(admin, auto_parse=True, auto_publish_profiles=[profile])
+    account(admin)
+    source = prepared(admin)
+    row = candidate(admin, parse(admin, source, FakeModel()))
+    assert row["state"] == "pending"
+    assert admin.get("/api/v1/admin/statements").json()["total"] == 0
+    with admin.app.state.sessions() as db:
+        assert db.get(PreparedInput, source["input_id"]).converter_version == "generic-v2"

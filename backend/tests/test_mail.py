@@ -545,3 +545,179 @@ def test_unknown_mail_date_is_explicit_not_silently_outside_range(admin):
     sources = admin.get("/api/v1/admin/sources").json()["items"]
     assert len(sources) == 1
     assert sources[0]["reason"] == "MAIL_DATE_UNKNOWN" and sources[0]["state"] == "unsupported"
+
+
+def test_reconvert_saved_source_deduplicates_active_job_and_preserves_history(admin):
+    response = upload(admin)
+    sid = response.json()["source"]["id"]
+    drain(worker(admin))
+    old = admin.get(f"/api/v1/admin/sources/{sid}/preview").json()
+    url = f"/api/v1/admin/sources/{sid}/reprocess"
+    queued = admin.post(url, json={"mode": "reconvert"})
+    assert queued.status_code == 202
+    assert admin.post(url, json={"mode": "reconvert"}).json()["id"] == queued.json()["id"]
+    assert admin.get(f"/api/v1/admin/sources/{sid}/preview").status_code == 409
+    assert admin.post(url, json={"mode": "refetch"}).status_code == 409
+    drain(worker(admin))
+    preview = admin.get(f"/api/v1/admin/sources/{sid}/preview").json()
+    assert preview["source"]["state"] == "ready"
+    assert preview["input"]["id"] == old["input"]["id"]
+    with admin.app.state.sessions() as db:
+        assert (
+            db.get(PreparedInput, preview["input"]["id"]).converter_version
+            == preview["input"]["version"]
+            == "generic-v2"
+        )
+    assert task(admin, queued.json()["id"])["state"] == "succeeded"
+    assert admin.get("/api/v1/admin/sources").json()["total"] == 1
+    assert admin.get("/api/v1/admin/statements").json()["total"] == 0
+    assert admin.post(url, json={"mode": "refetch"}).json()["error"]["code"] == "SOURCE_NOT_REFETCHABLE"
+    assert admin.post(url, json={"mode": "unknown"}).status_code == 422
+
+
+@pytest.mark.parametrize("protocol", ["imap", "pop3"])
+def test_forced_refetch_downloads_existing_source_and_reconverts_without_rescan(admin, protocol):
+    box = create_box(admin, protocol=protocol)
+    factory = FakeFactory()
+    w = worker(admin, factory)
+    admin.post(f"/api/v1/admin/mailboxes/{box['id']}/sync", json={})
+    drain(w)
+    source = admin.get("/api/v1/admin/sources").json()["items"][0]
+    sid, old_input = source["id"], source["input_id"]
+    with admin.app.state.sessions() as db:
+        old_hash = db.get(MailSource, sid).raw_hash
+        cursor = db.get(Mailbox, box["id"]).last_uid
+    box = edit_box(admin, box, initial_days=1, subject_filters=["不匹配的筛选条件"])
+    factory.emails["1"] = message("重新下载的原文 888.88")
+    before = len([e for e in factory.events if e[0] == "fetch"])
+    url = f"/api/v1/admin/sources/{sid}/reprocess"
+    queued = admin.post(url, json={"mode": "refetch"})
+    assert queued.status_code == 202, queued.text
+    assert admin.post(url, json={"mode": "refetch"}).json()["id"] == queued.json()["id"]
+    assert admin.post(url, json={"mode": "reconvert"}).status_code == 409
+    drain(w)
+    preview = admin.get(f"/api/v1/admin/sources/{sid}/preview").json()
+    assert preview["source"]["state"] == "ready"
+    assert "888.88" in preview["input"]["parts"][0]["text"]
+    assert preview["input"]["id"] != old_input
+    assert len([e for e in factory.events if e[0] == "fetch"]) == before + 1
+    assert task(admin, queued.json()["id"])["state"] == "succeeded"
+    assert admin.get("/api/v1/admin/sources").json()["total"] == 1
+    assert admin.get("/api/v1/admin/statements").json()["total"] == 0
+    with admin.app.state.sessions() as db:
+        assert db.get(Mailbox, box["id"]).last_uid == cursor
+        assert db.get(MailSource, sid).raw_hash != old_hash
+        assert db.get(PreparedInput, old_input) is not None
+    assert read_blob(admin.app.state.settings, old_hash)
+    assert read_blob(admin.app.state.settings, old_input, "input")
+
+
+def test_refetch_rejects_paused_or_changed_mailbox_and_uidvalidity(admin):
+    box = create_box(admin)
+    factory = FakeFactory()
+    w = worker(admin, factory)
+    admin.post(f"/api/v1/admin/mailboxes/{box['id']}/sync", json={})
+    drain(w)
+    source = admin.get("/api/v1/admin/sources").json()["items"][0]
+    sid = source["id"]
+    url = f"/api/v1/admin/sources/{sid}/reprocess"
+    box = edit_box(admin, box, active=False)
+    assert admin.post(url, json={"mode": "refetch"}).json()["error"]["code"] == "MAILBOX_PAUSED"
+    # Saved-file conversion does not need an active mailbox.
+    assert admin.post(url, json={"mode": "reconvert"}).status_code == 202
+    drain(w)
+    box = edit_box(admin, box, active=True)
+    factory.validity = "changed"
+    before = len([e for e in factory.events if e[0] == "fetch"])
+    queued = admin.post(url, json={"mode": "refetch"}).json()
+    drain(w)
+    assert task(admin, queued["id"])["error_code"] == "MAIL_UIDVALIDITY_CHANGED"
+    assert len([e for e in factory.events if e[0] == "fetch"]) == before
+    rows = admin.get("/api/v1/admin/sources").json()["items"]
+    assert rows[0]["state"] == "fetch_failed" and rows[0]["raw_available"]
+    assert admin.post(url, json={"mode": "reconvert"}).status_code == 202
+    drain(w)
+    box = edit_box(admin, box, host="new.example.test")
+    assert admin.post(url, json={"mode": "refetch"}).json()["error"]["code"] == "MAIL_IDENTITY_CHANGED"
+
+
+def test_reprocess_config_change_does_not_leave_source_pending(admin):
+    box = create_box(admin)
+    factory = FakeFactory()
+    w = worker(admin, factory)
+    admin.post(f"/api/v1/admin/mailboxes/{box['id']}/sync", json={})
+    drain(w)
+    source = admin.get("/api/v1/admin/sources").json()["items"][0]
+    queued = admin.post(f"/api/v1/admin/sources/{source['id']}/reprocess", json={"mode": "refetch"}).json()
+    before = len(factory.events)
+    edit_box(admin, box, name="配置已变更")
+    drain(w)
+    assert task(admin, queued["id"])["state"] == "cancelled"
+    assert len(factory.events) == before
+    source = admin.get("/api/v1/admin/sources").json()["items"][0]
+    assert source["state"] == "fetch_failed" and source["reason"] == "MAIL_CONFIG_CHANGED"
+
+
+def test_reprocess_refetch_checks_size_before_downloading(admin):
+    box = create_box(admin)
+    factory = FakeFactory()
+    w = worker(admin, factory)
+    admin.post(f"/api/v1/admin/mailboxes/{box['id']}/sync", json={})
+    drain(w)
+    source = admin.get("/api/v1/admin/sources").json()["items"][0]
+    before = len([e for e in factory.events if e[0] == "fetch"])
+    admin.app.state.settings.mail_max_bytes = 10
+    queued = admin.post(f"/api/v1/admin/sources/{source['id']}/reprocess", json={"mode": "refetch"}).json()
+    drain(w)
+    assert task(admin, queued["id"])["error_code"] == "MAIL_TOO_LARGE"
+    assert len([e for e in factory.events if e[0] == "fetch"]) == before
+
+
+def test_reprocess_blocks_running_model_and_requires_admin(admin):
+    response = upload(admin)
+    sid = response.json()["source"]["id"]
+    drain(worker(admin))
+    with transaction(admin.app.state.sessions) as db:
+        db.add(Task(kind="llm_parse", source_id=sid, state="running", active_key="test-running-model"))
+    url = f"/api/v1/admin/sources/{sid}/reprocess"
+    assert admin.post(url, json={"mode": "reconvert"}).json()["error"]["code"] == "SOURCE_BUSY"
+    code = admin.post("/api/v1/admin/devices/pairing-codes").json()["code"]
+    token = admin.post("/api/v1/device/pair", json={"code": code, "name": "测试手机"}).json()["token"]
+    assert (
+        admin.post(url, json={"mode": "reconvert"}, headers={"Authorization": "Bearer " + token}).status_code
+        == 403
+    )
+
+
+def test_charset_compatibility_preserves_text_with_review_warning():
+    msg = EmailMessage()
+    msg["Subject"] = "test"
+    msg.set_content("正文 € 123.45", charset="gb18030")
+    msg.set_param("charset", "gb2312", header="Content-Type")
+    result = convert_bytes(msg.as_bytes(), "message/rfc822", LIMITS)
+    assert result["state"] == "partial"
+    assert "正文 € 123.45" in result["parts"][0]["text"]
+    assert result["warnings"] == ["TEXT_CHARSET_FALLBACK"]
+    msg.set_content("测试 UTF8 123.45", charset="utf-8")
+    msg.set_param("charset", "unknown-codec", header="Content-Type")
+    result = convert_bytes(msg.as_bytes(), "message/rfc822", LIMITS)
+    assert result["state"] == "partial" and "测试 UTF8" in result["parts"][0]["text"]
+    raw = b"Subject: test\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n\xff"
+    result = convert_bytes(raw, "message/rfc822", LIMITS)
+    assert result["state"] == "unsupported" and "TEXT_DECODE_FAILED" in result["warnings"]
+
+
+@pytest.mark.parametrize("body", ["", "\xff"])
+def test_alternative_html_used_when_plain_body_empty_or_undecodable(body):
+    msg = EmailMessage()
+    msg["Subject"] = "test"
+    if body:
+        msg.set_content(b"\xff", maintype="text", subtype="plain", cte="base64")
+        msg.set_param("charset", "utf-8", header="Content-Type")
+    else:
+        msg.set_content("")
+    msg.add_alternative("<p>备用正文 123.45</p><script>unsafe</script>", subtype="html")
+    result = convert_bytes(msg.as_bytes(), "message/rfc822", LIMITS)
+    assert result["state"] == "partial" and len(result["parts"]) == 1
+    assert result["parts"][0]["text"] == "备用正文 123.45"
+    assert "TEXT_ALTERNATIVE_FALLBACK" in result["warnings"]

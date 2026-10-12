@@ -68,6 +68,11 @@ class MailboxConfig(BaseModel):
         return self
 
 
+class SourceReprocess(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mode: Literal["reconvert", "refetch"] = "reconvert"
+
+
 class ScanRange(BaseModel):
     model_config = ConfigDict(extra="forbid")
     from_date: date | None = None

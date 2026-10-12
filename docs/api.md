@@ -103,9 +103,10 @@
 | GET /import-status | P2、密钥配置布尔、worker_online / last_heartbeat、任务统计、ready来源数；模型 / 提醒 not_implemented |
 | GET /sources | 支持 state / mailbox_id，分页；来源状态和 input_id，不直接输出正文 |
 | POST /sources/upload | 原始 bytes，不是 multipart；X-Filename 为 URL 编码文件名；202，source / task / duplicate |
+| POST /sources/{id}/reprocess | JSON `mode: reconvert / refetch`；202，重新转换已保存原件或强制单封重收后转换；不重复创建来源，活动任务互斥 |
 | GET /sources/{id}/preview | 纯文本 JSON `{source,input,llm_parsed:false}`；没转换409；只管理员可看 |
 
-上传：`Content-Type: application/octet-stream`，正文为 EML / PDF 原文件，X-Filename 最大1500字符，解码展示名最多180字。EML20MiB / PDF10MiB，PDF magic校验、空文件、非法扩展名、流大小及20秒接收超时校验；待执行任务超过1000拒绝新上传。重复原文件返回已有来源 / 最近任务，不自动重试旧格式错误，请在任务队列操作。
+上传：`Content-Type: application/octet-stream`，正文为 EML / PDF 原文件，X-Filename 最大1500字符，解码展示名最多180字。EML20MiB / PDF10MiB，PDF magic校验、空文件、非法扩展名、流大小及20秒接收超时校验；待执行任务超过1000拒绝新上传。重复原文件返回已有来源 / 最近任务，不自动重试旧格式错误，请使用来源中的「重新转换」或「重新收取并转换」，或在任务队列操作。
 
 状态 / 控制规则详见 `mail-import.md`。配置 PATCH 不是 JSON Merge Patch；服务端不会把 unknown 字段补写为业务值。大模型、模型提示词和账单语义提取尚未实现，任何 ready / partial 来源都不自动变为账单。
 

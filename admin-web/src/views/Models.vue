@@ -201,14 +201,17 @@ function addProfile() {
   }
   if (
     !form.value.auto_publish_profiles.some(
-      (p) => p.bank_code === profileBank.value && p.media_type === profileMedia.value,
+      (p) =>
+        p.bank_code === profileBank.value &&
+        p.media_type === profileMedia.value &&
+        p.converter_version === 'generic-v2',
     )
   )
     form.value.auto_publish_profiles.push({
       bank_code: profileBank.value,
       media_type: profileMedia.value,
       prompt_version: 'bill-prompt-v1',
-      converter_version: 'generic-v1',
+      converter_version: 'generic-v2',
       verified: true,
     })
   verified.value = false
