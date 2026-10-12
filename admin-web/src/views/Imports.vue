@@ -26,21 +26,6 @@ interface Mailbox {
   last_success_at: string | null
   last_test_at: string | null
 }
-interface Job {
-  id: string
-  kind: string
-  state: string
-  mailbox_id: string | null
-  source_id: string | null
-  attempts: number
-  max_attempts: number
-  progress: number
-  error_code: string | null
-  error_message: string | null
-  created_at: string
-  available_at: string
-  result: Record<string, unknown>
-}
 interface Source {
   id: string
   mailbox_id: string | null
@@ -92,17 +77,13 @@ const labels: Record<string, string> = {
 }
 const tab = ref('mailboxes'),
   boxes = ref<Mailbox[]>([]),
-  jobs = ref<Job[]>([]),
   sources = ref<Source[]>([])
 const health = ref<Health | null>(null),
   loading = ref(false),
   saving = ref(false),
   uploadBusy = ref(false)
-const jobState = ref(''),
-  sourceState = ref(''),
-  jobPage = ref(1),
+const sourceState = ref(''),
   sourcePage = ref(1),
-  jobTotal = ref(0),
   sourceTotal = ref(0)
 const dialog = ref(false),
   editId = ref(''),
@@ -111,9 +92,7 @@ const dialog = ref(false),
 const range = ref<string[]>([]),
   preview = ref<Preview | null>(null),
   previewOpen = ref(false)
-const detail = ref<Job | null>(null),
-  detailOpen = ref(false),
-  actionBusy = ref('')
+const actionBusy = ref('')
 let timer: ReturnType<typeof setInterval> | undefined
 const defaults = () => ({
   name: '',
@@ -147,16 +126,13 @@ function color(state: string): 'success' | 'warning' | 'danger' | 'info' {
 async function load(silent = false) {
   if (!silent) loading.value = true
   try {
-    const [b, h, j, s] = await Promise.all([
+    const [b, h, s] = await Promise.all([
       allItems<Mailbox>('/admin/mailboxes'),
       api<Health>('/admin/import-status'),
-      api<Page<Job>>(`/admin/tasks?page=${jobPage.value}&state=${jobState.value}`),
       api<Page<Source>>(`/admin/sources?page=${sourcePage.value}&state=${sourceState.value}`),
     ])
     boxes.value = b
     health.value = h
-    jobs.value = j.items
-    jobTotal.value = j.total
     sources.value = s.items
     sourceTotal.value = s.total
   } catch (e) {
@@ -258,10 +234,9 @@ async function action(box: Mailbox, kind: 'test' | 'sync', dates?: string[]) {
           : {}
         : undefined,
     )
-    ElMessage.success('任务已排队；实际结果请查看任务列表')
+    ElMessage.success('任务已排队；实际结果请查看任务队列')
     backfillBox.value = null
-    tab.value = 'tasks'
-    await load()
+    await router.push('/tasks')
   } catch (e) {
     ElMessage.error((e as Error).message)
   } finally {
@@ -327,27 +302,6 @@ async function showPreview(row: Source) {
   } catch (e) {
     ElMessage.error((e as Error).message)
   }
-}
-async function retry(row: Job) {
-  try {
-    await ElMessageBox.confirm(
-      '将创建新的重试任务，原失败记录保留。未修正的格式或凭证问题仍可能失败。',
-      '重试任务',
-    )
-    await api(`/admin/tasks/${row.id}/retry`, 'POST')
-    await load()
-    ElMessage.success('重试已排队')
-  } catch (e) {
-    if (e !== 'cancel' && e !== 'close') ElMessage.error((e as Error).message)
-  }
-}
-function showJob(row: Job) {
-  detail.value = row
-  detailOpen.value = true
-}
-function changeJobFilter() {
-  jobPage.value = 1
-  void load()
 }
 function changeSourceFilter() {
   sourcePage.value = 1
@@ -533,65 +487,6 @@ onUnmounted(() => {
           @current-change="load(false)"
         />
       </el-tab-pane>
-      <el-tab-pane label="任务队列" name="tasks">
-        <div class="filter-bar import-filters">
-          <el-select v-model="jobState" aria-label="任务状态筛选" @change="changeJobFilter"
-            ><el-option label="全部状态" value="" /><el-option
-              v-for="value in [
-                'queued',
-                'running',
-                'retry_wait',
-                'succeeded',
-                'failed',
-                'unsupported',
-                'cancelled',
-              ]"
-              :key="value"
-              :label="label(value)"
-              :value="value" /></el-select
-          ><span class="muted">最多 3 次自动尝试；失败记录保留</span>
-        </div>
-        <el-table :data="jobs" empty-text="尚无任务"
-          ><el-table-column label="任务" min-width="165"
-            ><template #default="{ row }"
-              ><strong>{{ label(row.kind) }}</strong>
-              <p>{{ boxName(row.mailbox_id) }}</p></template
-            ></el-table-column
-          ><el-table-column label="状态" width="120"
-            ><template #default="{ row }"
-              ><el-tag :type="color(row.state)">{{ label(row.state) }}</el-tag></template
-            ></el-table-column
-          ><el-table-column label="进度 / 尝试" width="120"
-            ><template #default="{ row }"
-              >{{ row.progress }} 封 / {{ row.attempts }} 次</template
-            ></el-table-column
-          ><el-table-column label="错误" min-width="200"
-            ><template #default="{ row }"
-              ><span class="import-code">{{ row.error_code || '—' }}</span>
-              <p>{{ row.error_message }}</p></template
-            ></el-table-column
-          ><el-table-column label="操作" width="135"
-            ><template #default="{ row }"
-              ><el-button text @click="showJob(row)">详情</el-button
-              ><el-button
-                v-if="['failed', 'unsupported', 'cancelled'].includes(row.state)"
-                text
-                type="primary"
-                @click="retry(row)"
-                >重试</el-button
-              ></template
-            ></el-table-column
-          ></el-table
-        >
-        <el-pagination
-          class="pagination"
-          v-model:current-page="jobPage"
-          :total="jobTotal"
-          :page-size="20"
-          layout="prev,pager,next"
-          @current-change="load(false)"
-        />
-      </el-tab-pane>
     </el-tabs>
   </section>
   <el-dialog
@@ -706,14 +601,5 @@ onUnmounted(() => {
         没有可转换文本，请上传已解密的文本型 PDF 或手工录入账单。
       </p></template
     ></el-drawer
-  >
-  <el-dialog v-model="detailOpen" title="任务详情" width="min(600px,94vw)"
-    ><template v-if="detail"
-      ><p>{{ label(detail.kind) }} · {{ label(detail.state) }}</p>
-      <p>创建时间：{{ dateTime(detail.created_at) }}</p>
-      <p>下次可执行：{{ dateTime(detail.available_at) }}</p>
-      <p class="import-error">{{ detail.error_code }} {{ detail.error_message }}</p>
-      <pre class="source-text">{{ JSON.stringify(detail.result, null, 2) }}</pre>
-    </template></el-dialog
   >
 </template>

@@ -8,6 +8,7 @@ import {
   Setting,
   Message,
   MagicStick,
+  List,
   ArrowRight,
   SwitchButton,
 } from '@element-plus/icons-vue'
@@ -21,6 +22,7 @@ const navigation = [
   { path: '/statements', label: '账单管理', icon: Document },
   { path: '/imports', label: '邮箱与导入', icon: Message },
   { path: '/models', label: '模型与核对', icon: MagicStick },
+  { path: '/tasks', label: '任务队列', icon: List },
   { path: '/settings', label: '安全与设置', icon: Setting },
 ]
 const heading = computed(() => route.meta.title)

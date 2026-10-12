@@ -72,10 +72,16 @@ test('P2: inactive mailbox, upload, worker conversion, safe preview and narrow l
   await expect(row).toHaveCount(1)
   const after = await (await page.request.get('/api/v1/admin/statements')).json()
   expect(after.total).toBe(before.total)
-  await page.getByRole('tab', { name: '任务队列' }).click()
+  await page.getByRole('link', { name: '任务队列' }).click()
+  await expect(page).toHaveURL(/\/tasks$/)
+  await expect(page.getByRole('link', { name: '任务队列' })).toHaveClass(/active/)
+  await page.reload()
+  await expect(page.getByRole('heading', { name: '所有任务，统一查看。' })).toBeVisible()
   await expect(page.getByRole('row').filter({ hasText: '通用资料转换' }).first()).toContainText(
     '任务完成',
   )
+  await page.getByRole('link', { name: '邮箱与导入' }).click()
+  await expect(page.getByRole('tab', { name: '任务队列' })).toHaveCount(0)
   await page.getByRole('tab', { name: '来源资料' }).click()
   await page.screenshot({ path: '../docs/screenshots/imports.png', fullPage: true })
   await page.setViewportSize({ width: 390, height: 844 })

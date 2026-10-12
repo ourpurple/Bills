@@ -6,6 +6,7 @@ const Accounts = () => import('./views/Accounts.vue')
 const Statements = () => import('./views/Statements.vue')
 const Imports = () => import('./views/Imports.vue')
 const Models = () => import('./views/Models.vue')
+const Tasks = () => import('./views/Tasks.vue')
 const Settings = () => import('./views/Settings.vue')
 const router = createRouter({
   history: createWebHistory(),
@@ -16,6 +17,7 @@ const router = createRouter({
     { path: '/statements', component: Statements, meta: { title: '账单管理' } },
     { path: '/imports', component: Imports, meta: { title: '邮箱与导入' } },
     { path: '/models', component: Models, meta: { title: '模型与核对' } },
+    { path: '/tasks', component: Tasks, meta: { title: '任务队列' } },
     { path: '/settings', component: Settings, meta: { title: '安全与设置' } },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],

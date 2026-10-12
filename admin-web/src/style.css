@@ -66,6 +66,7 @@ p {
   background: #193b30;
   color: #c1d0c6;
   position: fixed;
+  overflow-y: auto;
   inset: 0 auto 0 0;
   display: flex;
   flex-direction: column;
