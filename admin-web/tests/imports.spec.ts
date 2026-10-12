@@ -164,3 +164,73 @@ test('source recovery: refetch confirmation queues the selected email without mo
   expect(modelRequests).toEqual([])
   await expect(row.getByRole('button', { name: '重新收取并转换', exact: true })).toBeDisabled()
 })
+
+test('source progress distinguishes prepared, pending review and saved bills', async ({ page }) => {
+  const base = {
+    mailbox_id: null,
+    filename: 'synthetic.eml',
+    sender: 'synthetic@example.test',
+    state: 'ready',
+    reason: null,
+    size_bytes: 1024,
+    created_at: '2026-10-12T10:00:00+08:00',
+    input_id: 'synthetic-input',
+    raw_available: true,
+    llm_parsed: false,
+    saved_statement_count: 0,
+    pending_candidate_count: 0,
+  }
+  const sources = [
+    { ...base, id: 'prepared', subject: '仅完成资料转换' },
+    {
+      ...base,
+      id: 'recognized',
+      subject: '模型识别等待核对',
+      llm_parsed: true,
+      pending_candidate_count: 1,
+    },
+    { ...base, id: 'saved', subject: '模型账单已保存', llm_parsed: true, saved_statement_count: 1 },
+    {
+      ...base,
+      id: 'partial-save',
+      subject: '一封邮件多份账单',
+      llm_parsed: true,
+      saved_statement_count: 1,
+      pending_candidate_count: 1,
+    },
+    { ...base, id: 'rejected', subject: '识别候选未采用', llm_parsed: true },
+    {
+      ...base,
+      id: 'reconverting',
+      subject: '已保存后重新转换',
+      llm_parsed: true,
+      saved_statement_count: 1,
+      state: 'pending',
+    },
+  ]
+  await page.route('**/api/v1/admin/sources?*', async (route) => {
+    await route.fulfill({ json: { items: sources, total: sources.length, page: 1, page_size: 20 } })
+  })
+  await page.goto('/login')
+  await page.getByLabel('用户名', { exact: true }).fill('e2e-admin')
+  await page.locator('#login-password').fill('browser-test-only-2026')
+  await page.getByRole('button', { name: '进入工作台' }).click()
+  await page.getByRole('link', { name: '邮箱与导入' }).click()
+  await page.getByRole('tab', { name: '来源资料' }).click()
+  const row = (subject: string) => page.getByRole('row').filter({ hasText: subject })
+  await expect(row('仅完成资料转换')).toContainText('文本已准备')
+  await expect(row('模型识别等待核对')).toContainText('已识别 · 待核对')
+  await expect(row('模型账单已保存')).toContainText('已识别并保存')
+  await expect(row('模型账单已保存')).toContainText('已保存 1 份账单')
+  await expect(row('模型账单已保存')).not.toContainText('文本已准备')
+  await expect(row('一封邮件多份账单')).toContainText('已识别 · 部分保存')
+  await expect(row('一封邮件多份账单')).toContainText('1 份候选待核对')
+  await expect(row('识别候选未采用')).toContainText('已识别 · 未保存')
+  await expect(row('已保存后重新转换')).toContainText('已识别并保存')
+  await expect(row('已保存后重新转换')).toContainText('等待转换')
+  await page.screenshot({ path: test.info().outputPath('source-progress.png'), fullPage: true })
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(
+    false,
+  )
+})

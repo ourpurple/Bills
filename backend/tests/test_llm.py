@@ -1068,3 +1068,109 @@ def test_old_converter_publish_profile_requires_new_version_verification(admin):
     assert admin.get("/api/v1/admin/statements").json()["total"] == 0
     with admin.app.state.sessions() as db:
         assert db.get(PreparedInput, source["input_id"]).converter_version == "generic-v2"
+
+
+def source_progress(c, source):
+    rows = c.get("/api/v1/admin/sources?state=ready").json()["items"]
+    return next(row for row in rows if row["id"] == source["id"])
+
+
+def test_source_progress_tracks_recognition_partial_save_and_void(admin):
+    config(admin)
+    account(admin)
+    source = prepared(admin)
+    initial = source_progress(admin, source)
+    assert initial["llm_parsed"] is False
+    assert initial["saved_statement_count"] == initial["pending_candidate_count"] == 0
+    run = parse(admin, source, FakeModel(result(bill(), bill(currency="USD", amount="5.00", minimum="1.00"))))
+    recognized = source_progress(admin, source)
+    assert recognized["llm_parsed"] is True
+    assert recognized["saved_statement_count"] == 0
+    assert recognized["pending_candidate_count"] == 2
+
+    for index, candidate_id in enumerate(run["candidate_ids"], start=1):
+        row = admin.get(f"/api/v1/admin/candidates/{candidate_id}").json()
+        response = publish(admin, row, acknowledge_warnings=True)
+        assert response.status_code == 200, response.text
+        saved = source_progress(admin, source)
+        assert saved["state"] == "ready"  # Conversion state remains independent.
+        assert saved["saved_statement_count"] == index
+        assert saved["pending_candidate_count"] == 2 - index
+        preview = admin.get(f"/api/v1/admin/sources/{source['id']}/preview").json()["source"]
+        assert preview == saved
+
+    for statement in admin.get("/api/v1/admin/statements").json()["items"]:
+        response = admin.post(
+            f"/api/v1/admin/statements/{statement['id']}/void",
+            json=dict(expected_version=statement["version"], reason="合成测试作废"),
+        )
+        assert response.status_code == 200, response.text
+    voided = source_progress(admin, source)
+    assert voided["llm_parsed"] is True and voided["saved_statement_count"] == 0
+
+
+def test_source_progress_survives_force_duplicate_upload_and_reconversion(admin):
+    config(admin)
+    account(admin)
+    source = prepared(admin)
+    first = candidate(admin, parse(admin, source, FakeModel()))
+    response = publish(admin, first)
+    assert response.status_code == 200, response.text
+    statement = response.json()["statement"]
+    second = candidate(admin, parse(admin, source, FakeModel(), force=True))
+    progress = source_progress(admin, source)
+    assert progress["saved_statement_count"] == progress["pending_candidate_count"] == 1
+    response = publish(
+        admin, second, action="duplicate", expected_statement_version=statement["version"], acknowledge_warnings=True
+    )
+    assert response.status_code == 200, response.text
+    progress = source_progress(admin, source)
+    assert progress["saved_statement_count"] == 1 and progress["pending_candidate_count"] == 0
+    repeated = upload(admin, message(TEXT), name="合成.eml").json()
+    assert repeated["duplicate"] is True
+    assert repeated["source"]["saved_statement_count"] == 1
+
+    response = admin.post(f"/api/v1/admin/sources/{source['id']}/reprocess", json=dict(mode="reconvert"))
+    assert response.status_code == 202, response.text
+    waiting = admin.get("/api/v1/admin/sources?state=pending").json()["items"][0]
+    assert waiting["id"] == source["id"] and waiting["saved_statement_count"] == 1
+    drain(Worker(admin.app.state.settings, admin.app.state.sessions, model_client=FakeModel()))
+    assert source_progress(admin, source)["saved_statement_count"] == 1
+
+
+def test_source_progress_does_not_claim_non_bill_failure_or_rejection_is_saved(admin):
+    config(admin, task_call_limit=1)
+    account(admin)
+    source = prepared(admin)
+    parse(admin, source, FakeModel(result()))
+    assert source_progress(admin, source)["llm_parsed"] is False
+    parse(admin, source, FakeModel("invalid JSON"), force=True)
+    assert source_progress(admin, source)["saved_statement_count"] == 0
+    row = candidate(admin, parse(admin, source, FakeModel(), force=True))
+    response = admin.post(
+        f"/api/v1/admin/candidates/{row['id']}/reject",
+        json=dict(expected_version=row["version"], reason="合成候选不采用"),
+    )
+    assert response.status_code == 200, response.text
+    rejected = source_progress(admin, source)
+    assert rejected["llm_parsed"] is True
+    assert rejected["saved_statement_count"] == rejected["pending_candidate_count"] == 0
+
+
+def test_source_progress_includes_cached_results_for_equivalent_emails(admin):
+    config(admin)
+    account(admin)
+    source = prepared(admin)
+    run = parse(admin, source, FakeModel())
+    response = publish(admin, candidate(admin, run))
+    assert response.status_code == 200, response.text
+    response = upload(admin, message(TEXT, subject="相同正文的另一封邮件"))
+    assert response.status_code == 202, response.text
+    other = response.json()["source"]
+    drain(Worker(admin.app.state.settings, admin.app.state.sessions, model_client=FakeModel()))
+    cached = source_progress(admin, other)
+    assert cached["id"] != source["id"] and cached["input_id"] == source["input_id"]
+    assert cached["llm_parsed"] is True and cached["saved_statement_count"] == 1
+    fake = FakeModel()
+    assert parse(admin, cached, fake)["id"] == run["id"]
+    assert fake.calls == []

@@ -38,6 +38,9 @@ interface Source {
   created_at: string
   input_id: string | null
   raw_available: boolean
+  llm_parsed: boolean
+  saved_statement_count: number
+  pending_candidate_count: number
 }
 interface Health {
   master_key_configured: boolean
@@ -65,6 +68,10 @@ const labels: Record<string, string> = {
   cancelled: '已取消',
   pending: '等待转换',
   ready: '文本已准备',
+  saved: '已识别并保存',
+  partially_saved: '已识别 · 部分保存',
+  pending_review: '已识别 · 待核对',
+  parsed: '已识别 · 未保存',
   partial: '部分文本已准备',
   skipped: '已筛除',
   fetch_failed: '取信失败',
@@ -120,10 +127,18 @@ function boxName(id: string | null) {
   return boxes.value.find((b) => b.id === id)?.name || '手工上传'
 }
 function color(state: string): 'success' | 'warning' | 'danger' | 'info' {
-  if (['ready', 'succeeded'].includes(state)) return 'success'
+  if (['ready', 'succeeded', 'saved'].includes(state)) return 'success'
   if (['failed', 'fetch_failed', 'conversion_failed'].includes(state)) return 'danger'
-  if (['partial', 'unsupported', 'retry_wait'].includes(state)) return 'warning'
+  if (['partial', 'unsupported', 'retry_wait', 'pending_review', 'partially_saved'].includes(state))
+    return 'warning'
   return 'info'
+}
+function sourceStatus(row: Source) {
+  if (row.saved_statement_count > 0)
+    return row.pending_candidate_count > 0 ? 'partially_saved' : 'saved'
+  if (row.pending_candidate_count > 0) return 'pending_review'
+  if (row.llm_parsed) return 'parsed'
+  return row.state
 }
 async function load(silent = false) {
   if (!silent) loading.value = true
@@ -498,8 +513,23 @@ onUnmounted(() => {
             ></el-table-column
           ><el-table-column label="状态" width="170"
             ><template #default="{ row }"
-              ><el-tag :type="color(row.state)">{{ label(row.state) }}</el-tag
-              ><small class="import-code">{{ row.reason }}</small></template
+              ><el-tag :type="color(sourceStatus(row))">{{ label(sourceStatus(row)) }}</el-tag>
+              <small v-if="row.saved_statement_count > 0" class="import-code">
+                已保存 {{ row.saved_statement_count }} 份账单
+              </small>
+              <small
+                v-if="row.saved_statement_count > 0 && row.pending_candidate_count > 0"
+                class="import-code"
+              >
+                另有 {{ row.pending_candidate_count }} 份候选待核对
+              </small>
+              <small
+                v-if="row.llm_parsed && !['ready', 'partial'].includes(row.state)"
+                class="import-code"
+              >
+                {{ label(row.state) }}
+              </small>
+              <small class="import-code">{{ row.reason }}</small></template
             ></el-table-column
           ><el-table-column label="导入时间" min-width="160"
             ><template #default="{ row }">{{ dateTime(row.created_at) }}</template></el-table-column

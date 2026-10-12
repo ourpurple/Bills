@@ -6,7 +6,7 @@ from datetime import timedelta
 from urllib.parse import unquote
 
 from fastapi import APIRouter, Depends, Header, Query, Request
-from sqlalchemy import func, select
+from sqlalchemy import case, func, or_, select
 
 from .core import DomainError, utc_naive
 from .mail_crypto import encrypt_secret
@@ -14,7 +14,7 @@ from .mail_input import metadata
 from .mail_jobs import ACTIVE, enqueue, queue_reprocess, queue_retry
 from .mail_schemas import MailboxConfig, ScanRange, SourceReprocess
 from .mail_storage import content_hash, read_blob, write_blob
-from .models import Mailbox, MailSource, Task, WorkerHeartbeat
+from .models import Mailbox, MailSource, ModelCandidate, ModelRun, Statement, Task, WorkerHeartbeat
 from .security import administrator, audit, get_db
 from .services import require, stamp
 
@@ -80,7 +80,46 @@ def task_json(row):
     return data
 
 
-def source_json(row):
+def source_model_progress(db, source_ids):
+    """Derive model progress from persisted results, including historical imports.
+
+    Batch the page in one query; conversions and forced recognition must not erase
+    the link to bills that have already been saved. Equivalent prepared inputs
+    share cached recognition results. Voided bills do not count.
+    """
+    if not source_ids:
+        return {}
+    saved = case(
+        (
+            ModelCandidate.state.in_(["published", "duplicate"]) & (Statement.status != "void"),
+            Statement.id,
+        ),
+        else_=None,
+    )
+    rows = db.execute(
+        select(
+            MailSource.id.label("source_id"),
+            func.count(func.distinct(saved)).label("saved_statement_count"),
+            func.sum(case((ModelCandidate.state == "pending", 1), else_=0)).label("pending_candidate_count"),
+        )
+        .select_from(MailSource)
+        .join(ModelRun, or_(ModelRun.source_id == MailSource.id, ModelRun.input_id == MailSource.input_id))
+        .join(ModelCandidate, ModelCandidate.run_id == ModelRun.id)
+        .outerjoin(Statement, Statement.id == ModelCandidate.statement_id)
+        .where(MailSource.id.in_(source_ids), ModelRun.state == "succeeded")
+        .group_by(MailSource.id)
+    )
+    return {
+        row.source_id: dict(
+            llm_parsed=True,
+            saved_statement_count=row.saved_statement_count,
+            pending_candidate_count=row.pending_candidate_count,
+        )
+        for row in rows
+    }
+
+
+def source_json(row, progress=None):
     fields = (
         "id",
         "mailbox_id",
@@ -101,7 +140,10 @@ def source_json(row):
         created_at=stamp(row.created_at),
         raw_available=bool(row.raw_hash),
         llm_parsed=False,
+        saved_statement_count=0,
+        pending_candidate_count=0,
     )
+    data.update((progress or {}).get(row.id, {}))
     return data
 
 
@@ -265,9 +307,13 @@ def sources(
         query = query.where(MailSource.state == state)
     if mailbox_id:
         query = query.where(MailSource.mailbox_id == mailbox_id)
-    return paginated(
+    result = paginated(
         db, query.order_by(MailSource.created_at.desc(), MailSource.id), source_json, page, page_size
     )
+    progress = source_model_progress(db, [item["id"] for item in result["items"]])
+    for item in result["items"]:
+        item.update(progress.get(item["id"], {}))
+    return result
 
 
 @router.post("/sources/upload", status_code=202)
@@ -335,7 +381,7 @@ async def upload_source(
         )
     audit(db, actor.id, "source.uploaded", source.id)
     return dict(
-        source=source_json(source),
+        source=source_json(source, source_model_progress(db, [source.id])),
         task=task_json(task) if task else None,
         duplicate=duplicate,
     )
@@ -360,13 +406,11 @@ def preview_source(object_id: str, request: Request, db=Depends(get_db, scope="f
     if not source.input_id:
         raise DomainError("INPUT_NOT_READY", "资料尚未转换，请查看任务状态", 409)
     content = json.loads(read_blob(request.app.state.settings, source.input_id, "input"))
-    from .models import ModelRun
-
     parsed = db.scalars(
         select(ModelRun).where(ModelRun.input_id == source.input_id, ModelRun.state == "succeeded")
     ).all()
     return dict(
-        source=source_json(source),
+        source=source_json(source, source_model_progress(db, [source.id])),
         input=content,
         llm_parsed=any(json.loads(run.result_json).get("is_bill", False) for run in parsed),
         model_run_ids=[r.id for r in parsed],
