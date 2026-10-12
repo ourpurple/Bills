@@ -47,7 +47,11 @@ test('manual account → draft → confirm → repayment → revise → overview
   await page.getByRole('button', { name: '保存', exact: true }).click()
   await expect(page.getByRole('dialog')).not.toBeVisible()
   await expect(page.getByRole('heading', { name: '合并测试账户' })).toBeVisible()
-  await page.getByRole('button', { name: '添加卡片' }).first().click()
+  await page
+    .locator('.account-card')
+    .filter({ has: page.getByRole('heading', { name: '合并测试账户', exact: true }) })
+    .getByRole('button', { name: '添加卡片', exact: true })
+    .click()
   await fill(page, '名称', '测试卡片')
   await fill(page, '卡片尾号', '1234')
   await page.getByRole('button', { name: '保存', exact: true }).click()

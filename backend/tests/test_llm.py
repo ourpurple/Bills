@@ -1037,3 +1037,20 @@ def test_delete_during_call_prevents_old_result_submission(admin, readd):
     if readd:
         new_run = parse(admin, source, FakeModel())
         assert new_run["id"] != run["id"] and new_run["state"] == "succeeded"
+
+
+def test_delete_account_with_import_candidate_preserves_candidate_and_cards(admin):
+    a = account(admin)
+    config(admin)
+    row = candidate(admin, parse(admin, prepared(admin), FakeModel()))
+    assert row["account_id"] == a["id"]
+    response = admin.delete(f"/api/v1/admin/accounts/{a['id']}")
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "ACCOUNT_HAS_CANDIDATES"
+    assert admin.get(f"/api/v1/admin/candidates/{row['id']}").json() == row
+    accounts = admin.get("/api/v1/admin/accounts").json()["items"]
+    assert next(item for item in accounts if item["id"] == a["id"])["cards"]
+    assert not any(
+        event["action"].endswith(".deleted")
+        for event in admin.get("/api/v1/admin/audit-events").json()["items"]
+    )

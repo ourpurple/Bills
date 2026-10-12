@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import { api, allItems } from '../api'
-import { modeText, type Bank, type Holder, type Account } from '../types'
+import { modeText, type Bank, type Holder, type Account, type Card } from '../types'
 const banks = ref<Bank[]>([]),
   holders = ref<Holder[]>([]),
   accounts = ref<Account[]>([])
@@ -13,6 +13,7 @@ const tab = ref('accounts'),
   saving = ref(false),
   entity = ref(''),
   editing = ref('')
+const deleting = ref('')
 const form = ref<Record<string, any>>({})
 const title = computed(
   () =>
@@ -106,6 +107,32 @@ async function save() {
     saving.value = false
   }
 }
+async function remove(kind: 'account' | 'card', row: Account | Card) {
+  if (deleting.value) return
+  const isAccount = kind === 'account'
+  const label = isAccount ? '账户' : '卡片'
+  const message = isAccount
+    ? `确定删除账户“${row.name}”及其下的所有卡片吗？此操作不可恢复。有关联账单或导入记录的账户不能删除，请改为停用。`
+    : `确定删除卡片“${row.name}”（尾号 ${(row as Card).last_four}）吗？此操作不可恢复，所属账户和历史账单会保留。`
+  // Lock before confirmation so repeated clicks cannot open competing delete prompts.
+  deleting.value = row.id
+  try {
+    await ElMessageBox.confirm(message, `删除${label}`, {
+      type: 'warning',
+      confirmButtonText: '确认删除',
+      cancelButtonText: '取消',
+      confirmButtonClass: 'el-button--danger',
+    })
+    await api(`/admin/${isAccount ? 'accounts' : 'cards'}/${row.id}`, 'DELETE')
+    if (editing.value === row.id && entity.value === kind) dialog.value = false
+    ElMessage.success(`${label}已删除`)
+    await load()
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close') ElMessage.error((e as Error).message)
+  } finally {
+    deleting.value = ''
+  }
+}
 onMounted(load)
 </script>
 <template>
@@ -163,6 +190,13 @@ onMounted(load)
                   :disabled="!a.effective_active"
                   @click="open('card', undefined, a.id)"
                   >添加卡片</el-button
+                ><el-button
+                  text
+                  type="danger"
+                  :loading="deleting === a.id"
+                  :disabled="!!deleting && deleting !== a.id"
+                  @click="remove('account', a)"
+                  >删除</el-button
                 >
               </div>
             </div>
@@ -267,8 +301,18 @@ onMounted(load)
           active-text="有效"
           inactive-text="停用" /></el-form-item></el-form
     ><template #footer
-      ><el-button @click="dialog = false">取消</el-button
-      ><el-button type="primary" :loading="saving" @click="save">保存</el-button></template
+      ><el-button
+        v-if="entity === 'card' && editing"
+        type="danger"
+        plain
+        :loading="deleting === editing"
+        :disabled="saving || (!!deleting && deleting !== editing)"
+        @click="remove('card', form as Card)"
+        >删除卡片</el-button
+      ><el-button :disabled="!!deleting" @click="dialog = false">取消</el-button
+      ><el-button type="primary" :loading="saving" :disabled="!!deleting" @click="save"
+        >保存</el-button
+      ></template
     ></el-dialog
   >
 </template>

@@ -24,6 +24,7 @@ from .models import (
     Cardholder,
     Credential,
     LoginAttempt,
+    ModelCandidate,
     Repayment,
     RepaymentPlan,
     Statement,
@@ -372,6 +373,27 @@ def create_app(settings: Settings | None = None):
         audit(db, actor.id, "account.updated", row.id)
         return service.account_view(db, row)
 
+    @app.delete("/api/v1/admin/accounts/{object_id}")
+    def delete_account(
+        object_id: str,
+        db=Depends(get_db, scope="function"),
+        actor=Depends(administrator, scope="function"),
+    ):
+        row = service.require(db, Account, object_id)
+        if db.scalar(select(Statement.id).where(Statement.account_id == row.id).limit(1)):
+            raise DomainError("ACCOUNT_HAS_STATEMENTS", "该账户有关联账单，不能删除。请停用账户以保留历史记录。", 409)
+        if db.scalar(select(ModelCandidate.id).where(ModelCandidate.account_id == row.id).limit(1)):
+            raise DomainError("ACCOUNT_HAS_CANDIDATES", "该账户有关联导入记录，不能删除。请停用账户以保留历史记录。", 409)
+        cards = db.scalars(select(Card).where(Card.account_id == row.id)).all()
+        for card in cards:
+            audit(db, actor.id, "card.deleted", card.id, json.dumps({"account_id": row.id}))
+            db.delete(card)
+        # Flush children first; SQLite enforces foreign keys immediately.
+        db.flush()
+        audit(db, actor.id, "account.deleted", row.id, json.dumps({"name": row.name, "card_count": len(cards)}))
+        db.delete(row)
+        return {"deleted": True, "id": object_id}
+
     @app.post("/api/v1/admin/cards", status_code=201)
     def create_card(
         data: S.CardCreate,
@@ -413,6 +435,18 @@ def create_app(settings: Settings | None = None):
         row.name, row.active = data.name, data.active
         audit(db, actor.id, "card.updated", row.id)
         return basic(row, ("account_id", "last_four", "name", "active"))
+
+    @app.delete("/api/v1/admin/cards/{object_id}")
+    def delete_card(
+        object_id: str,
+        db=Depends(get_db, scope="function"),
+        actor=Depends(administrator, scope="function"),
+    ):
+        row = service.require(db, Card, object_id)
+        # Bills belong to accounts; historical transaction tails are stored separately.
+        audit(db, actor.id, "card.deleted", row.id, json.dumps({"account_id": row.account_id}))
+        db.delete(row)
+        return {"deleted": True, "id": object_id}
 
     @app.get("/api/v1/admin/statements")
     @app.get("/api/v1/app/statements")

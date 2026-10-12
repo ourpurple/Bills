@@ -1,7 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from conftest import create, make_statement
+from conftest import create, make_statement, payment
 from fastapi.testclient import TestClient
 
 
@@ -145,3 +145,89 @@ def test_concurrent_account_creation_reuses_one_automatic_group(admin):
     assert all(r.status_code == 201 for r in results), [r.text for r in results]
     assert len({r.json()["group_id"] for r in results}) == 1
     assert len(groups(admin)) == 1
+
+
+@pytest.mark.parametrize("mode", ["merged", "independent"])
+def test_delete_card_preserves_account_and_historical_statement(admin, mode):
+    _, _, ids = ownership(admin)
+    account = create(admin, "accounts", {"name": "删除测试", "mode": mode, **ids})
+    card = create(admin, "cards", {"name": "测试卡", "last_four": "1234", "account_id": account["id"]})
+    statement = make_statement(admin, account)
+    assert payment(admin, statement["id"]).status_code == 201
+    before = admin.get(f"/api/v1/admin/statements/{statement['id']}").json()
+    response = admin.delete(f"/api/v1/admin/cards/{card['id']}")
+    assert response.status_code == 200, response.text
+    assert response.json() == {"deleted": True, "id": card["id"]}
+    after = admin.get(f"/api/v1/admin/statements/{statement['id']}").json()
+    assert after["account"]["id"] == account["id"]
+    assert after["account"]["cards"] == []
+    for field in ("amount", "paid", "remaining", "repayments", "revisions"):
+        assert after[field] == before[field]
+    # Removal releases both the independent-card limit and the tail uniqueness constraint.
+    replacement = create(admin, "cards", {"name": "新卡", "last_four": "1234", "account_id": account["id"]})
+    assert replacement["id"] != card["id"]
+    events = admin.get("/api/v1/admin/audit-events").json()["items"]
+    assert any(e["action"] == "card.deleted" and e["object_id"] == card["id"] for e in events)
+
+
+@pytest.mark.parametrize("with_cards", [False, True])
+def test_delete_account_removes_children_but_keeps_other_accounts_and_ownership(admin, with_cards):
+    _, _, ids = ownership(admin)
+    account = create(admin, "accounts", {"name": "待删除账户", **ids})
+    other = create(admin, "accounts", {"name": "保留账户", **ids})
+    cards = []
+    if with_cards:
+        for tail in ("1234", "5678"):
+            cards.append(create(admin, "cards", {"name": "附属卡", "last_four": tail, "account_id": account["id"]}))
+        admin.patch(f"/api/v1/admin/accounts/{account['id']}", json={"name": account["name"], "active": False})
+    response = admin.delete(f"/api/v1/admin/accounts/{account['id']}")
+    assert response.status_code == 200, response.text
+    assert response.json() == {"deleted": True, "id": account["id"]}
+    rows = admin.get("/api/v1/admin/accounts").json()["items"]
+    assert [a["id"] for a in rows] == [other["id"]]
+    assert len(groups(admin)) == 1
+    assert admin.get("/api/v1/admin/cardholders").json()["total"] == 1
+    for card in cards:
+        assert admin.delete(f"/api/v1/admin/cards/{card['id']}").status_code == 404
+    events = admin.get("/api/v1/admin/audit-events").json()["items"]
+    assert sum(e["action"] == "account.deleted" for e in events) == 1
+    assert sum(e["action"] == "card.deleted" for e in events) == len(cards)
+
+
+@pytest.mark.parametrize("status", ["draft", "confirmed", "void"])
+def test_delete_account_with_any_historical_statement_is_rejected_atomically(admin, status):
+    _, _, ids = ownership(admin)
+    account = create(admin, "accounts", {"name": "历史账户", **ids})
+    card = create(admin, "cards", {"name": "历史卡", "last_four": "1234", "account_id": account["id"]})
+    statement = make_statement(admin, account, confirm=status != "draft")
+    if status == "void":
+        response = admin.post(
+            f"/api/v1/admin/statements/{statement['id']}/void",
+            json={"expected_version": statement["version"], "reason": "测试作废"},
+        )
+        assert response.status_code == 200, response.text
+    response = admin.delete(f"/api/v1/admin/accounts/{account['id']}")
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "ACCOUNT_HAS_STATEMENTS"
+    rows = admin.get("/api/v1/admin/accounts").json()["items"]
+    assert rows[0]["cards"][0]["id"] == card["id"]
+    assert admin.get(f"/api/v1/admin/statements/{statement['id']}").json()["status"] == status
+    events = admin.get("/api/v1/admin/audit-events").json()["items"]
+    assert not any(e["action"].endswith(".deleted") for e in events)
+
+
+@pytest.mark.parametrize("resource", ["accounts", "cards"])
+def test_delete_requires_login(admin, resource):
+    with TestClient(admin.app) as anonymous:
+        assert anonymous.delete(f"/api/v1/admin/{resource}/missing").status_code == 401
+
+
+@pytest.mark.parametrize("resource", ["accounts", "cards"])
+def test_delete_requires_csrf_origin_and_admin_role(admin, resource):
+    path = f"/api/v1/admin/{resource}/missing"
+    assert admin.delete(path, headers={"X-CSRF-Token": "bad"}).status_code == 403
+    assert admin.delete(path, headers={"Origin": "https://evil.invalid"}).status_code == 403
+    code = admin.post("/api/v1/admin/devices/pairing-codes").json()["code"]
+    paired = admin.post("/api/v1/device/pair", json={"code": code, "name": "测试手机"}).json()
+    assert admin.delete(path, headers={"Authorization": f"Bearer {paired['token']}"}).status_code == 403
+    assert admin.delete(path).status_code == 404
