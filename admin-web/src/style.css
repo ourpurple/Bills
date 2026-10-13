@@ -458,16 +458,22 @@ p {
   gap: 7px;
   min-width: 100px;
 }
+.bill-deadline .el-tag {
+  align-self: flex-start;
+}
 .bill-deadline strong {
   font-size: 12px;
   font-weight: 500;
 }
-.bill-deadline span {
+.bill-deadline .bill-due-date {
   font-size: 10px;
   color: #8b9785;
 }
-.urgent strong {
-  color: #b17447;
+.bill-amount.urgent strong,
+.bill-deadline.urgent strong,
+.bill-deadline.urgent .bill-due-date {
+  color: #c0392b;
+  font-weight: 700;
 }
 .history-notice {
   border-left: 3px solid #b29a6c;

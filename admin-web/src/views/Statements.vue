@@ -302,7 +302,14 @@ onMounted(async () => {
           <h2>{{ detail.account.bank_name }} · {{ detail.account.cardholder_name }}</h2>
           <p>{{ detail.account.name }} · {{ detail.statement_date }} · v{{ detail.version }}</p>
         </div>
-        <el-tag>{{ stateText(detail) }}</el-tag>
+        <el-tag
+          :type="
+            detail.status === 'confirmed' && detail.payment_status === 'settled'
+              ? 'success'
+              : 'primary'
+          "
+          >{{ stateText(detail) }}</el-tag
+        >
       </div>
       <div class="detail-summary">
         <span>本期应还</span><strong>{{ amountText(detail.amount, detail.currency) }}</strong>

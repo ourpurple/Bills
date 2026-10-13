@@ -4,13 +4,16 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowRight, Refresh, Plus } from '@element-plus/icons-vue'
 import { api } from '../api'
-import { amountText, stateText, type Overview } from '../types'
+import { amountText, stateText, type Overview, type Statement } from '../types'
 const data = ref<Overview | null>(null),
   loading = ref(false),
   router = useRouter()
 const cny = computed(() => data.value?.totals.find((t) => t.currency === 'CNY')?.amount ?? '0.00')
 const due = (n: number | null) =>
   n === null ? '日期未知' : n < 0 ? `已过期 ${-n} 天` : n === 0 ? '今天到期' : `${n} 天后到期`
+const isUrgent = (s: Statement) =>
+  Number(s.remaining) > 0 &&
+  (s.overdue || (s.days_until_due !== null && s.days_until_due >= 0 && s.days_until_due <= 7))
 async function load() {
   loading.value = true
   try {
@@ -111,22 +114,18 @@ onMounted(load)
             {{ s.statement_date }}</small
           >
         </div>
-        <div class="bill-amount">
+        <div class="bill-amount" :class="{ urgent: isUrgent(s) }">
           <span>记录待还</span><strong>{{ amountText(s.remaining, s.currency) }}</strong
           ><small v-if="s.payment_status === 'partial'"
             >已标记 {{ amountText(s.paid, s.currency) }}</small
           >
         </div>
-        <div
-          class="bill-deadline"
-          :class="{
-            urgent:
-              s.overdue ||
-              (s.days_until_due !== null && s.days_until_due <= 3 && Number(s.remaining) > 0),
-          }"
-        >
-          <strong>{{ Number(s.remaining) === 0 ? stateText(s) : due(s.days_until_due) }}</strong
-          ><span>{{ s.due_date || '待确认' }}</span>
+        <div class="bill-deadline" :class="{ urgent: isUrgent(s) }">
+          <el-tag v-if="s.payment_status === 'settled'" type="success">{{ stateText(s) }}</el-tag>
+          <strong v-else>{{
+            Number(s.remaining) === 0 ? stateText(s) : due(s.days_until_due)
+          }}</strong>
+          <span class="bill-due-date">{{ s.due_date || '待确认' }}</span>
         </div>
         <el-button text @click="router.push(`/statements?detail=${s.id}`)"
           >查看<el-icon><ArrowRight /></el-icon
