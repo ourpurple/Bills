@@ -427,6 +427,15 @@ p {
   font-size: 10px;
   color: #8e9988;
 }
+.bill-update-notice {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+}
+.bill-update-notice small {
+  color: #9e885e;
+}
 .bill-amount {
   display: flex;
   flex-direction: column;

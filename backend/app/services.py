@@ -459,6 +459,8 @@ def overview(db):
         key = (row.account_id, row.currency)
         if key not in seen:
             seen.add(key)
+            item["needs_update"] = False
+            item["expected_statement_date"] = None
             latest.append(item)
             totals[row.currency] = totals.get(row.currency, 0) + minor(
                 Decimal(item["remaining"]), row.currency
@@ -473,6 +475,11 @@ def overview(db):
     for account in active_accounts:
         expected = expected_statement_date(account, today)
         account_rows = [s for s in latest if s["account"]["id"] == account.id]
+        for item in account_rows:
+            item["expected_statement_date"] = expected.isoformat() if expected else None
+            item["needs_update"] = bool(
+                expected and expected < today and date.fromisoformat(item["statement_date"]) < expected
+            )
         pending = db.scalar(
             select(func.count())
             .select_from(Statement)

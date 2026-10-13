@@ -98,9 +98,13 @@ export interface Statement {
   detail_history?: { version: number; status: string; transactions: Transaction[] }[]
   revisions?: Revision[]
 }
+export interface OverviewStatement extends Statement {
+  needs_update: boolean
+  expected_statement_date: string | null
+}
 export interface Overview {
   totals: { currency: string; amount: string }[]
-  latest_statements: Statement[]
+  latest_statements: OverviewStatement[]
   historical_unresolved: Statement[]
   warnings: { account_id: string; account_name: string; kind: string; message: string }[]
   account_count: number

@@ -133,3 +133,95 @@ for (const width of [1440, 390]) {
     }
   })
 }
+
+for (const width of [1440, 390]) {
+  test(`overview distinguishes stale bills from settled current bills (${width}px)`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width, height: 1100 })
+    const cases = [
+      { id: 'stale-settled', stale: true, remaining: '0.00', day: 13 },
+      { id: 'stale-unpaid', stale: true, remaining: '100.00', day: 13 },
+      { id: 'current-settled', stale: false, remaining: '0.00', day: 13 },
+      { id: 'unknown-day', stale: false, remaining: '0.00', day: null },
+    ]
+    let updated = false
+    const rows = () =>
+      cases.map((c) => ({
+        id: c.id,
+        account: {
+          id: `account-${c.id}`,
+          bank_name: '浦发银行',
+          bank_code: 'spdb',
+          cardholder_name: '测试持卡人',
+          mode: 'merged',
+          statement_day: c.day,
+          cards: [
+            { id: `card-${c.id}`, name: c.id, last_four: '9190', active: true },
+            { id: `second-${c.id}`, name: '运通白', last_four: '5661', active: true },
+          ],
+        },
+        statement_date: c.stale && !updated ? '2026-09-13' : '2026-10-13',
+        expected_statement_date: c.day ? '2026-10-13' : null,
+        needs_update: c.stale && !updated,
+        currency: 'CNY',
+        remaining: c.remaining,
+        payment_status: c.remaining === '0.00' ? 'settled' : 'unpaid',
+        status: 'confirmed',
+        due_date: '2026-11-01',
+        days_until_due: 18,
+        overdue: false,
+      }))
+    await page.route('**/api/v1/auth/me', (route) =>
+      route.fulfill({ json: { username: 'test-admin', csrf_token: 'test-csrf' } }),
+    )
+    await page.route('**/api/v1/admin/overview', (route) =>
+      route.fulfill({
+        json: {
+          totals: [{ currency: 'CNY', amount: '100.00' }],
+          latest_statements: rows(),
+          historical_unresolved: [],
+          warnings: [],
+          account_count: cases.length,
+          pending_count: 0,
+          due_soon_count: 0,
+          overdue_count: 0,
+          as_of: '2026-10-14',
+          disclaimer: '测试账单',
+        },
+      }),
+    )
+    await page.goto('/')
+    await expect(page.locator('.bill-update-notice')).toHaveCount(2)
+    for (const [index, c] of cases.entries()) {
+      const row = page.locator('.bill-row').nth(index)
+      if (c.stale) {
+        await expect(row.locator('.bill-update-notice .el-tag--warning')).toHaveText('待更新账单')
+        await expect(row.locator('.bill-update-notice small')).toHaveText('本期应出账：2026-10-13')
+        await expect(row.locator('.bill-amount > span')).toHaveText('旧账单记录待还')
+        const bounds = (await row.boundingBox())!
+        const notice = (await row.locator('.bill-update-notice').boundingBox())!
+        expect(notice.x + notice.width).toBeLessThanOrEqual(bounds.x + bounds.width)
+      } else {
+        await expect(row.locator('.bill-update-notice')).toHaveCount(0)
+        await expect(row.locator('.bill-amount > span')).toHaveText('记录待还')
+      }
+      if (c.remaining === '0.00') {
+        await expect(row.locator('.bill-deadline .el-tag--success')).toHaveText(
+          c.stale ? '旧账单已标记结清' : '已标记结清',
+        )
+      }
+    }
+    await page.screenshot({
+      path: testInfo.outputPath(`overview-update-${width}.png`),
+      fullPage: true,
+      animations: 'disabled',
+    })
+    updated = true
+    await page.getByRole('button', { name: '刷新', exact: true }).click()
+    await expect(page.locator('.bill-update-notice')).toHaveCount(0)
+    await expect(
+      page.locator('.bill-row').first().locator('.bill-deadline .el-tag--success'),
+    ).toHaveText('已标记结清')
+  })
+}
