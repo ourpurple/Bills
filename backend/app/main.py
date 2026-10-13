@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import secrets
-from datetime import timedelta
+from datetime import date, timedelta
+from typing import Literal
 
 from fastapi import Depends, FastAPI, Header, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
@@ -453,16 +454,31 @@ def create_app(settings: Settings | None = None):
     def statements(
         account_id: str | None = None,
         status: str | None = None,
+        bank_id: str | None = None,
+        cardholder_id: str | None = None,
+        keyword: str | None = Query(None, max_length=100),
+        payment_state: Literal["unpaid", "partial", "settled", "overdue", "overpaid"] | None = None,
+        currency: Literal["CNY", "USD", "EUR", "HKD", "JPY"] | None = None,
+        date_field: Literal["statement_date", "due_date"] = "statement_date",
+        date_from: date | None = None,
+        date_to: date | None = None,
         page_number: int = Query(1, alias="page", ge=1),
         page_size: int = Query(20, ge=1, le=100),
         db=Depends(get_db, scope="function"),
         actor=Depends(principal, scope="function"),
     ):
-        query = select(Statement).order_by(Statement.statement_date.desc(), Statement.id)
-        if account_id:
-            query = query.where(Statement.account_id == account_id)
-        if status:
-            query = query.where(Statement.status == status)
+        query = service.statement_query(
+            account_id=account_id,
+            bank_id=bank_id,
+            cardholder_id=cardholder_id,
+            keyword=keyword,
+            status=status,
+            payment_state=payment_state,
+            currency=currency,
+            date_field=date_field,
+            date_from=date_from,
+            date_to=date_to,
+        )
         return page(db, query, lambda s: service.statement_view(db, s), page_number, page_size)
 
     @app.post("/api/v1/admin/statements", status_code=201)

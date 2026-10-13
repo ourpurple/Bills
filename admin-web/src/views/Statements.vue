@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh } from '@element-plus/icons-vue'
+import { Plus, Refresh, Search, ArrowDown, ArrowUp } from '@element-plus/icons-vue'
 import { detailState } from '../model-types'
 import { api, allItems, ApiError } from '../api'
 import { amountText, dateTime, stateText, type Page, type Account, type Statement } from '../types'
@@ -14,6 +14,14 @@ const route = useRoute(),
   total = ref(0),
   page = ref(1)
 const filterAccount = ref(''),
+  filterBank = ref(''),
+  filterHolder = ref(''),
+  keyword = ref(''),
+  appliedKeyword = ref(''),
+  filterCurrency = ref(''),
+  dateField = ref<'statement_date' | 'due_date'>('statement_date'),
+  dateRange = ref<[string, string] | null>(null),
+  moreFilters = ref(false),
   filterStatus = ref(String(route.query.status || '')),
   detail = ref<Statement | null>(null),
   drawer = ref(false)
@@ -24,23 +32,94 @@ const editor = ref(false),
   isPlan = ref(false),
   payment = ref<Record<string, any>>({}),
   paymentKey = ref('')
+const banks = computed(() => [
+  ...new Map(accounts.value.map((a) => [a.bank_id, { id: a.bank_id, name: a.bank_name }])).values(),
+])
+const holders = computed(() => [
+  ...new Map(
+    accounts.value.map((a) => [a.cardholder_id, { id: a.cardholder_id, name: a.cardholder_name }]),
+  ).values(),
+])
+const availableAccounts = computed(() =>
+  accounts.value.filter(
+    (a) =>
+      (!filterBank.value || a.bank_id === filterBank.value) &&
+      (!filterHolder.value || a.cardholder_id === filterHolder.value),
+  ),
+)
+function cardLabel(account: Account) {
+  const cards = account.cards.map((c) => `${c.name} · 尾号 ${c.last_four}`).join(' / ')
+  return `${cards || account.name + '（暂未添加卡片）'} · ${account.bank_name} · ${account.cardholder_name}`
+}
+const activeFilterCount = computed(
+  () =>
+    [
+      appliedKeyword.value,
+      filterBank.value,
+      filterHolder.value,
+      filterAccount.value,
+      filterStatus.value,
+      filterCurrency.value,
+      dateRange.value?.length,
+    ].filter(Boolean).length,
+)
+function changeIdentityFilter() {
+  if (!availableAccounts.value.some((a) => a.id === filterAccount.value)) filterAccount.value = ''
+  changeFilter()
+}
+function search() {
+  appliedKeyword.value = keyword.value.trim()
+  changeFilter()
+}
+function resetFilters() {
+  for (const filter of [
+    keyword,
+    appliedKeyword,
+    filterBank,
+    filterHolder,
+    filterAccount,
+    filterStatus,
+    filterCurrency,
+  ]) {
+    filter.value = ''
+  }
+  dateRange.value = null
+  dateField.value = 'statement_date'
+  changeFilter()
+}
 function changeFilter() {
   page.value = 1
   void load()
 }
+let loadSequence = 0
 async function load() {
+  const sequence = ++loadSequence
   loading.value = true
   try {
     const params = new URLSearchParams({ page: String(page.value), page_size: '20' })
     if (filterAccount.value) params.set('account_id', filterAccount.value)
-    if (filterStatus.value) params.set('status', filterStatus.value)
+    if (filterBank.value) params.set('bank_id', filterBank.value)
+    if (filterHolder.value) params.set('cardholder_id', filterHolder.value)
+    if (appliedKeyword.value) params.set('keyword', appliedKeyword.value)
+    if (filterStatus.value) {
+      if (['draft', 'confirmed', 'void'].includes(filterStatus.value))
+        params.set('status', filterStatus.value)
+      else params.set('payment_state', filterStatus.value)
+    }
+    if (filterCurrency.value) params.set('currency', filterCurrency.value)
+    if (dateRange.value?.length === 2) {
+      params.set('date_field', dateField.value)
+      params.set('date_from', dateRange.value[0])
+      params.set('date_to', dateRange.value[1])
+    }
     const data = await api<Page<Statement>>('/admin/statements?' + params)
+    if (sequence !== loadSequence) return
     rows.value = data.items
     total.value = data.total
   } catch (e) {
-    ElMessage.error((e as Error).message)
+    if (sequence === loadSequence) ElMessage.error((e as Error).message)
   } finally {
-    loading.value = false
+    if (sequence === loadSequence) loading.value = false
   }
 }
 async function show(id: string) {
@@ -220,28 +299,181 @@ onMounted(async () => {
     </div>
   </div>
   <section class="panel padded">
-    <div class="toolbar filter-bar">
-      <div>
-        <el-select
-          v-model="filterAccount"
-          clearable
-          filterable
-          placeholder="全部账户"
-          @change="changeFilter"
-          ><el-option
-            v-for="a in accounts"
-            :key="a.id"
-            :value="a.id"
-            :label="`${a.bank_name} · ${a.cardholder_name} · ${a.name}`" /></el-select
-        ><el-select v-model="filterStatus" clearable placeholder="全部状态" @change="changeFilter"
-          ><el-option label="待确认" value="draft" /><el-option
-            label="已确认"
-            value="confirmed" /><el-option label="已作废" value="void"
-        /></el-select>
+    <div class="statement-filters" aria-label="账单筛选">
+      <div class="statement-filter-grid">
+        <div class="filter-field filter-search">
+          <span>搜索账单</span>
+          <el-input
+            v-model="keyword"
+            :maxlength="100"
+            aria-label="搜索账单"
+            clearable
+            placeholder="卡名、尾号、银行或持卡人"
+            :prefix-icon="Search"
+            @keyup.enter="search"
+            @clear="search"
+          >
+            <template #append
+              ><el-button aria-label="搜索" :icon="Search" @click="search"
+            /></template>
+          </el-input>
+        </div>
+        <div class="filter-field">
+          <span>银行</span>
+          <el-select
+            v-model="filterBank"
+            aria-label="银行筛选"
+            clearable
+            filterable
+            placeholder="全部银行"
+            @change="changeIdentityFilter"
+          >
+            <el-option v-for="bank in banks" :key="bank.id" :label="bank.name" :value="bank.id" />
+          </el-select>
+        </div>
+        <div class="filter-field">
+          <span>持卡人</span>
+          <el-select
+            v-model="filterHolder"
+            aria-label="持卡人筛选"
+            clearable
+            filterable
+            placeholder="全部持卡人"
+            @change="changeIdentityFilter"
+          >
+            <el-option
+              v-for="holder in holders"
+              :key="holder.id"
+              :label="holder.name"
+              :value="holder.id"
+            />
+          </el-select>
+        </div>
+        <div class="filter-field filter-card">
+          <span>卡片 / 尾号</span>
+          <el-select
+            v-model="filterAccount"
+            aria-label="卡片筛选"
+            :fit-input-width="true"
+            popper-class="statement-card-options"
+            clearable
+            filterable
+            placeholder="全部卡片"
+            @change="changeFilter"
+          >
+            <el-option
+              v-for="account in availableAccounts"
+              :key="account.id"
+              :value="account.id"
+              :label="cardLabel(account)"
+              :aria-label="cardLabel(account)"
+            >
+              <span class="statement-card-option-name">{{
+                account.cards.map((c) => `${c.name} · 尾号 ${c.last_four}`).join(' / ') ||
+                account.name + '（暂未添加卡片）'
+              }}</span>
+              <span class="statement-card-option-meta"
+                >{{ account.bank_name }} · {{ account.cardholder_name
+                }}{{ account.mode === 'merged' ? ' · 合并还款' : '' }}</span
+              >
+            </el-option>
+          </el-select>
+        </div>
+        <div class="filter-field">
+          <span>账单状态</span>
+          <el-select
+            v-model="filterStatus"
+            aria-label="账单状态筛选"
+            clearable
+            placeholder="全部状态"
+            @change="changeFilter"
+          >
+            <el-option label="待还款" value="unpaid" />
+            <el-option label="部分还款" value="partial" />
+            <el-option label="已标记结清" value="settled" />
+            <el-option label="已过到期日" value="overdue" />
+            <el-option label="超额标记" value="overpaid" />
+            <el-option label="待确认" value="draft" />
+            <el-option label="已确认（全部还款状态）" value="confirmed" />
+            <el-option label="已作废" value="void" />
+          </el-select>
+        </div>
       </div>
-      <span class="muted">共 {{ total }} 份账单</span>
+      <div v-if="moreFilters" id="statement-more-filters" class="statement-advanced-filters">
+        <div class="filter-field filter-currency">
+          <span>币种</span>
+          <el-select
+            v-model="filterCurrency"
+            aria-label="币种筛选"
+            clearable
+            placeholder="全部币种"
+            @change="changeFilter"
+          >
+            <el-option label="人民币 CNY" value="CNY" /><el-option label="美元 USD" value="USD" />
+            <el-option label="欧元 EUR" value="EUR" /><el-option label="港币 HKD" value="HKD" />
+            <el-option label="日元 JPY" value="JPY" />
+          </el-select>
+        </div>
+        <div class="filter-field filter-date">
+          <span id="statement-date-label">日期范围</span>
+          <div class="filter-date-controls">
+            <el-select v-model="dateField" aria-label="日期类型" @change="changeFilter">
+              <el-option label="账单日" value="statement_date" /><el-option
+                label="到期日"
+                value="due_date"
+              />
+            </el-select>
+            <el-date-picker
+              v-model="dateRange"
+              aria-labelledby="statement-date-label"
+              type="daterange"
+              value-format="YYYY-MM-DD"
+              start-placeholder="开始日期"
+              end-placeholder="结束日期"
+              range-separator="至"
+              @change="changeFilter"
+            />
+          </div>
+        </div>
+      </div>
+      <div class="statement-filter-footer">
+        <div class="statement-filter-actions">
+          <el-button
+            text
+            type="primary"
+            :icon="moreFilters ? ArrowUp : ArrowDown"
+            :aria-expanded="moreFilters"
+            aria-controls="statement-more-filters"
+            @click="moreFilters = !moreFilters"
+          >
+            {{ moreFilters ? '收起筛选' : '更多筛选' }}
+          </el-button>
+          <el-button v-if="activeFilterCount || keyword" text @click="resetFilters"
+            >重置筛选</el-button
+          >
+          <span v-if="activeFilterCount" class="filter-count"
+            >已选 {{ activeFilterCount }} 项条件</span
+          >
+        </div>
+        <span class="muted" aria-live="polite"
+          >{{ activeFilterCount ? '筛选结果' : '共' }} <strong>{{ total }}</strong> 份账单</span
+        >
+      </div>
+      <p
+        v-if="filterAccount && accounts.find((a) => a.id === filterAccount)?.mode === 'merged'"
+        class="filter-note"
+      >
+        该卡片属于合并还款账户，展示整个账户的账单，不按卡片拆分金额。
+      </p>
     </div>
-    <el-table :data="rows" v-loading="loading" empty-text="没有账单，点击“录入账单”创建第一份。"
+    <el-table
+      :data="rows"
+      v-loading="loading"
+      :empty-text="
+        activeFilterCount
+          ? '没有符合条件的账单，试试调整或重置筛选。'
+          : '没有账单，点击“录入账单”创建第一份。'
+      "
       ><el-table-column label="卡片 / 尾号 / 银行 / 持卡人" min-width="260"
         ><template #default="{ row }"
           ><div class="statement-identity">
@@ -533,6 +765,137 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+:global(.statement-card-options .el-select-dropdown__item) {
+  height: auto;
+  min-height: 34px;
+  padding-block: 9px;
+  line-height: 1.5;
+  white-space: normal;
+}
+:global(.statement-card-option-name) {
+  display: block;
+  overflow-wrap: anywhere;
+}
+:global(.statement-card-option-meta) {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  color: #7b857d;
+  font-weight: 400;
+}
+
+.statement-filters {
+  padding: 20px 0 14px;
+}
+.statement-filter-grid {
+  display: grid;
+  grid-template-columns:
+    minmax(230px, 1.4fr) minmax(125px, 0.8fr) minmax(125px, 0.8fr) minmax(210px, 1.3fr)
+    minmax(150px, 0.9fr);
+  gap: 14px;
+}
+.filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.filter-field > span {
+  color: #7b857d;
+  font-size: 12px;
+  font-weight: 500;
+}
+.filter-field .el-select {
+  width: 100%;
+}
+.statement-advanced-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--el-border-color);
+}
+.filter-currency {
+  width: 180px;
+}
+.filter-date {
+  flex: 1;
+  max-width: 560px;
+}
+.filter-date-controls {
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+}
+.filter-date-controls > .el-select {
+  width: 110px;
+  flex-shrink: 0;
+}
+.filter-date-controls :deep(.el-date-editor) {
+  min-width: 0;
+  width: 100%;
+}
+.statement-filter-footer,
+.statement-filter-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.statement-filter-footer {
+  justify-content: space-between;
+  margin-top: 14px;
+}
+.statement-filter-actions .el-button {
+  margin-left: 0;
+  padding-inline: 0;
+}
+.filter-count,
+.filter-note {
+  color: #7b857d;
+  font-size: 12px;
+}
+.filter-note {
+  margin: 8px 0 0;
+}
+@media (max-width: 1200px) {
+  .statement-filter-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .filter-search {
+    grid-column: span 2;
+  }
+}
+@media (max-width: 640px) {
+  .statement-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px 10px;
+  }
+  .filter-search {
+    grid-column: 1 / -1;
+  }
+  .filter-card,
+  .statement-filter-grid > .filter-field:last-child {
+    grid-column: 1 / -1;
+  }
+  .filter-currency,
+  .filter-date {
+    width: 100%;
+    max-width: none;
+    flex: auto;
+  }
+  .filter-date-controls {
+    flex-direction: column;
+  }
+  .filter-date-controls > .el-select {
+    width: 100%;
+  }
+  .statement-filter-footer {
+    align-items: flex-start;
+  }
+}
+
 .statement-identity {
   padding: 2px 0;
 }

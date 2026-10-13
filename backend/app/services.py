@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, case, func, or_, select
 
 from .core import DomainError, utc_naive
 from .models import (
@@ -154,6 +154,93 @@ def plan_view(row):
         cancel_reason=row.cancel_reason,
         created_at=stamp(row.created_at),
     )
+
+
+def statement_query(
+    *,
+    account_id=None,
+    bank_id=None,
+    cardholder_id=None,
+    keyword=None,
+    status=None,
+    payment_state=None,
+    currency=None,
+    date_field="statement_date",
+    date_from=None,
+    date_to=None,
+):
+    """Filter before pagination; card matches use EXISTS so merged accounts count once."""
+    if date_from and date_to and date_from > date_to:
+        raise DomainError("INVALID_DATES", "开始日期不能晚于结束日期")
+    query = (
+        select(Statement)
+        .join(Account, Account.id == Statement.account_id)
+        .join(AccountGroup, AccountGroup.id == Account.group_id)
+        .join(Bank, Bank.id == AccountGroup.bank_id)
+        .join(Cardholder, Cardholder.id == AccountGroup.cardholder_id)
+        .join(
+            Revision,
+            and_(Revision.statement_id == Statement.id, Revision.version == Statement.current_version),
+        )
+        .order_by(Statement.statement_date.desc(), Statement.id)
+    )
+    for value, column in (
+        (account_id, Statement.account_id),
+        (bank_id, AccountGroup.bank_id),
+        (cardholder_id, AccountGroup.cardholder_id),
+        (status, Statement.status),
+        (currency, Statement.currency),
+    ):
+        if value:
+            query = query.where(column == value)
+    if keyword and keyword.strip():
+        term = keyword.strip()
+        card_match = (
+            select(Card.id)
+            .where(
+                Card.account_id == Account.id,
+                or_(
+                    Card.name.contains(term, autoescape=True), Card.last_four.contains(term, autoescape=True)
+                ),
+            )
+            .exists()
+        )
+        query = query.where(
+            or_(
+                card_match,
+                Bank.name.contains(term, autoescape=True),
+                Cardholder.name.contains(term, autoescape=True),
+                Account.name.contains(term, autoescape=True),
+            )
+        )
+    date_column = Revision.due_date if date_field == "due_date" else Statement.statement_date
+    if date_from:
+        query = query.where(date_column >= date_from)
+    if date_to:
+        query = query.where(date_column <= date_to)
+    if payment_state:
+        paid = (
+            select(func.coalesce(func.sum(Repayment.amount_minor), 0))
+            .where(
+                Repayment.statement_id == Statement.id,
+                Repayment.revoked_at.is_(None),
+            )
+            .correlate(Statement)
+            .scalar_subquery()
+        )
+        amount = Revision.amount_minor
+        nonnegative_amount = case((amount > 0, amount), else_=0)
+        today = datetime.now(ZoneInfo("Asia/Shanghai")).date()
+        overdue = and_(Revision.due_date.is_not(None), Revision.due_date < today, amount > paid)
+        conditions = {
+            "overdue": overdue,
+            "unpaid": and_(amount > paid, paid == 0, ~overdue),
+            "partial": and_(amount > paid, paid > 0, ~overdue),
+            "settled": and_(amount.is_not(None), paid == nonnegative_amount),
+            "overpaid": and_(amount.is_not(None), paid > nonnegative_amount),
+        }
+        query = query.where(Statement.status == "confirmed", conditions[payment_state])
+    return query
 
 
 def statement_view(db, statement, details=False):

@@ -6,6 +6,8 @@ for (const width of [1440, 390]) {
     const accounts = [
       {
         id: 'single',
+        bank_id: 'bank-1',
+        cardholder_id: 'holder-1',
         name: '账户名称不是卡片名称',
         bank_name: '广发银行',
         cardholder_name: '示例持卡人',
@@ -13,6 +15,8 @@ for (const width of [1440, 390]) {
       },
       {
         id: 'merged',
+        bank_id: 'bank-2',
+        cardholder_id: 'holder-2',
         name: '合并还款账户',
         bank_name: '招商银行',
         cardholder_name: '另一位持卡人',
@@ -29,6 +33,8 @@ for (const width of [1440, 390]) {
       },
       {
         id: 'empty',
+        bank_id: 'bank-3',
+        cardholder_id: 'holder-3',
         name: '待配置账户',
         bank_name: '建设银行',
         cardholder_name: '第三位持卡人',
