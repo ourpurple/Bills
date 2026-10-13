@@ -195,3 +195,67 @@ test('overview status deep link is preserved', async ({ page }) => {
   await expect(page.locator('.filter-count')).toHaveText('已选 1 项条件')
   await expect(page.locator('.statement-filter-grid .filter-field').last()).toContainText('待确认')
 })
+
+for (const width of [1440, 390]) {
+  test(`overview view filters all statements for the selected account (${width}px)`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 1000 })
+    await setup(page)
+    await page.route('**/api/v1/admin/overview', (route) =>
+      route.fulfill({
+        json: {
+          totals: [{ currency: 'CNY', amount: '4115.82' }],
+          latest_statements: statements.slice(0, accounts.length),
+          historical_unresolved: [],
+          warnings: [],
+          account_count: accounts.length,
+          pending_count: 0,
+          due_soon_count: 0,
+          overdue_count: 0,
+        },
+      }),
+    )
+    for (const account of accounts) {
+      await page.getByRole('link', { name: '账单概览', exact: true }).click()
+      const request = page.waitForRequest((request) => {
+        const url = new URL(request.url())
+        return (
+          url.pathname === '/api/v1/admin/statements' &&
+          url.searchParams.get('account_id') === account.id
+        )
+      })
+      await page
+        .locator('.bill-row')
+        .filter({ hasText: account.bank_name })
+        .getByRole('button', { name: '查看', exact: true })
+        .click()
+      const params = new URL((await request).url()).searchParams
+      expect([...params.keys()].sort()).toEqual(['account_id', 'page', 'page_size'])
+      expect(params.get('page')).toBe('1')
+      await expect(page).toHaveURL(`/statements?account_id=${account.id}`)
+      await expect(page.locator('.filter-card')).toContainText(account.cards[0].last_four)
+      const expected = statements.filter((s) => s.account.id === account.id)
+      await expect(page.locator('.statement-filter-footer')).toContainText(
+        `${expected.length} 份账单`,
+      )
+      await expect(page.locator('.statement-identity')).toHaveCount(expected.length)
+      await expect(page.locator('.statement-account')).toHaveText(
+        expected.map(() => `${account.bank_name} · ${account.cardholder_name}`),
+      )
+      await expect(page.locator('.el-drawer')).not.toBeVisible()
+      await page.reload()
+      await expect(page.locator('.statement-filter-footer')).toContainText(
+        `${expected.length} 份账单`,
+      )
+      await expect(page.locator('.filter-card')).toContainText(account.cards[0].last_four)
+    }
+    await page.getByRole('link', { name: '账单管理', exact: true }).click()
+    await expect(page.locator('.statement-filter-footer')).toContainText('24 份账单')
+    await expect(page.locator('.filter-card')).toContainText('全部卡片')
+    await choose(page, '卡片筛选', '臻享白 · 尾号 9759 · 广发银行 · 牛整辉')
+    await expect(page.locator('.statement-filter-footer')).toContainText('8 份账单')
+    await page.getByRole('button', { name: '重置筛选' }).click()
+    await expect(page.locator('.statement-filter-footer')).toContainText('24 份账单')
+  })
+}

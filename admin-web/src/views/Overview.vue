@@ -127,7 +127,9 @@ onMounted(load)
           }}</strong>
           <span class="bill-due-date">{{ s.due_date || '待确认' }}</span>
         </div>
-        <el-button text @click="router.push(`/statements?detail=${s.id}`)"
+        <el-button
+          text
+          @click="router.push({ path: '/statements', query: { account_id: s.account.id } })"
           >查看<el-icon><ArrowRight /></el-icon
         ></el-button>
       </div>

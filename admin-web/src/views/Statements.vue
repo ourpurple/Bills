@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh, Search, ArrowDown, ArrowUp } from '@element-plus/icons-vue'
@@ -13,7 +13,7 @@ const route = useRoute(),
   saving = ref(false),
   total = ref(0),
   page = ref(1)
-const filterAccount = ref(''),
+const filterAccount = ref(String(route.query.account_id || '')),
   filterBank = ref(''),
   filterHolder = ref(''),
   keyword = ref(''),
@@ -91,6 +91,13 @@ function changeFilter() {
   page.value = 1
   void load()
 }
+watch(
+  () => route.query.account_id,
+  (accountId) => {
+    filterAccount.value = String(accountId || '')
+    changeFilter()
+  },
+)
 let loadSequence = 0
 async function load() {
   const sequence = ++loadSequence

@@ -119,7 +119,9 @@ for (const width of [1440, 390]) {
     await expect(page.locator('.el-table__body .el-tag--success')).toHaveCount(2)
     for (const s of settled) {
       const row = page.locator('.el-table__body tr').filter({
-        has: page.getByText(s.account.bank_name, { exact: true }),
+        has: page.getByText(`${s.account.bank_name} · ${s.account.cardholder_name}`, {
+          exact: true,
+        }),
       })
       await row.getByRole('button', { name: '详情', exact: true }).click()
       const tag = page.locator('.detail-heading .el-tag--success')
