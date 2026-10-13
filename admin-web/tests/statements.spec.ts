@@ -59,11 +59,11 @@ for (const width of [1440, 390]) {
     await page.goto('/statements')
     await expect(page.locator('.statement-identity')).toHaveCount(accounts.length)
     await expect(
-      page.getByRole('columnheader', { name: '银行 / 持卡人 / 卡片 / 尾号' }),
+      page.getByRole('columnheader', { name: '卡片 / 尾号 / 银行 / 持卡人' }),
     ).toBeVisible()
     for (const [index, account] of accounts.entries()) {
       const identity = page.locator('.statement-identity').nth(index)
-      await expect(identity.locator('.table-title')).toHaveText(
+      await expect(identity.locator('.statement-account')).toHaveText(
         `${account.bank_name} · ${account.cardholder_name}`,
       )
       await expect(identity).not.toContainText(account.name)
@@ -72,6 +72,16 @@ for (const width of [1440, 390]) {
         const cardRow = identity.locator('.statement-card').nth(cardIndex)
         await expect(cardRow.locator('.statement-card-name')).toHaveText(card.name)
         await expect(cardRow.locator('.statement-card-tail')).toHaveText(`· 尾号 ${card.last_four}`)
+        await expect(cardRow).toHaveCSS('font-size', '14px')
+        await expect(cardRow).toHaveCSS('font-weight', '600')
+        await expect(cardRow).toHaveCSS('color', 'rgb(37, 57, 50)')
+        const accountInfo = identity.locator('.statement-account')
+        await expect(accountInfo).toHaveCSS('font-size', '12px')
+        await expect(accountInfo).toHaveCSS('font-weight', '400')
+        await expect(accountInfo).toHaveCSS('color', 'rgb(123, 133, 125)')
+        const cardBounds = (await cardRow.boundingBox())!
+        const accountBounds = (await accountInfo.boundingBox())!
+        expect(cardBounds.y + cardBounds.height).toBeLessThanOrEqual(accountBounds.y)
         const identityBounds = (await identity.boundingBox())!
         for (const part of ['.statement-card-name', '.statement-card-tail']) {
           const bounds = (await cardRow.locator(part).boundingBox())!
