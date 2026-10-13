@@ -41,6 +41,8 @@ test('P3: configure → model candidate → review → publish → details → r
     configuration
       .locator('.el-form-item')
       .filter({ has: page.locator('.el-form-item__label', { hasText: label }) })
+  await expect(configuration).toContainText('模型默认流式接收')
+  await expect(field('连接 / 流式空闲超时（秒）').locator('input')).toHaveValue('60')
   await field('HTTP / HTTPS 基础地址').locator('input').fill('http://models.example.test:8080/v1')
   await field('模型名称').locator('input').fill('synthetic-review-v1')
   await field('API Key').locator('input').fill('browser-synthetic-not-real')

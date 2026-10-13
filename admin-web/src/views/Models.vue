@@ -609,8 +609,12 @@ onUnmounted(() => clearInterval(timer))
             >自动发送已准备的资料（含历史）</el-checkbox
           ><el-checkbox v-model="form.json_mode">服务商支持 JSON 响应模式</el-checkbox>
         </div>
+        <p>
+          模型默认流式接收：持续收到数据可继续生成，单次请求最长 10
+          分钟。仅完整且校验通过的结果进入候选账单。
+        </p>
         <div class="model-form-grid">
-          <el-form-item label="请求总超时（秒）"
+          <el-form-item label="连接 / 流式空闲超时（秒）"
             ><el-input-number v-model="form.timeout_seconds" :min="5" :max="120" /></el-form-item
           ><el-form-item label="最大输出 token"
             ><el-input-number v-model="form.max_tokens" :min="512" :max="32768" /></el-form-item

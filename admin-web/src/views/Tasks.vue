@@ -72,6 +72,11 @@ const stages: Record<string, string> = {
   response_headers: '等待模型服务响应',
   response_body: '接收模型响应内容',
 }
+const timeoutKinds: Record<string, string> = {
+  request: '连接 / 初始响应超时',
+  idle: '流式响应空闲超时',
+  total: '流式请求总时限',
+}
 let timer: ReturnType<typeof setInterval> | undefined
 function label(value: string) {
   return labels[value] || value
@@ -259,6 +264,15 @@ onUnmounted(() => {
           label="配置超时"
         >
           {{ diagnostic.timeout_seconds }} 秒
+        </el-descriptions-item>
+        <el-descriptions-item v-if="diagnostic.timeout_kind" label="超时类型">
+          {{ timeoutKinds[String(diagnostic.timeout_kind)] || '未知类型' }}
+        </el-descriptions-item>
+        <el-descriptions-item
+          v-if="typeof diagnostic.total_timeout_seconds === 'number'"
+          label="流式总时限"
+        >
+          {{ diagnostic.total_timeout_seconds }} 秒
         </el-descriptions-item>
         <el-descriptions-item v-if="typeof diagnostic.request_bytes === 'number'" label="请求大小">
           {{ (diagnostic.request_bytes / 1024).toFixed(1) }} KB

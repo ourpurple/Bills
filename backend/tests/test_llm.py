@@ -704,7 +704,7 @@ def test_adapter_protocol_rejections(monkeypatch, status, reason, content, error
         def request(self, method, path, body, headers):
             assert method == "POST" and path == "/v1/chat/completions"
             data = json.loads(body)
-            assert data["stream"] is False and "tools" not in data
+            assert data["stream"] is True and "tools" not in data
 
         def getresponse(self):
             return Response()
@@ -1121,7 +1121,11 @@ def test_source_progress_survives_force_duplicate_upload_and_reconversion(admin)
     progress = source_progress(admin, source)
     assert progress["saved_statement_count"] == progress["pending_candidate_count"] == 1
     response = publish(
-        admin, second, action="duplicate", expected_statement_version=statement["version"], acknowledge_warnings=True
+        admin,
+        second,
+        action="duplicate",
+        expected_statement_version=statement["version"],
+        acknowledge_warnings=True,
     )
     assert response.status_code == 200, response.text
     progress = source_progress(admin, source)

@@ -24,6 +24,8 @@ test('system task queue: global navigation, mixed tasks, pagination, details, re
             http_status: 200,
             elapsed_ms: 60000,
             timeout_seconds: 60,
+            timeout_kind: 'idle',
+            total_timeout_seconds: 600,
             request_bytes: 20480,
           },
         }
@@ -121,6 +123,8 @@ test('system task queue: global navigation, mixed tasks, pagination, details, re
   await expect(detail).toContainText('HTTP 状态码')
   await expect(detail).toContainText('60.0 秒')
   await expect(detail).toContainText('20.0 KB')
+  await expect(detail).toContainText('流式响应空闲超时')
+  await expect(detail).toContainText('600 秒')
   await expect(detail.locator('pre')).toHaveCount(0)
   await detail.getByRole('button', { name: '关闭此对话框' }).click()
   tasks[2].result = {}
