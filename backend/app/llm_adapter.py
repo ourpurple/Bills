@@ -17,7 +17,28 @@ MAX_RESPONSE = 2 * 1024 * 1024
 
 
 class ModelFailure(MailFailure):
-    pass
+    def __init__(self, code, message, retryable=False, unsupported=False, *, diagnostics=None):
+        super().__init__(code, message, retryable, unsupported)
+        self.diagnostics = diagnostics or {}
+
+    def public_diagnostics(self):
+        """Only bounded counters/enums; never persist provider text or exception strings."""
+        result = {}
+        if not isinstance(self.diagnostics, dict):
+            return result
+        stage = self.diagnostics.get("stage")
+        if isinstance(stage, str) and stage in {"dns", "request", "response_headers", "response_body"}:
+            result["stage"] = stage
+        for key, low, high in (
+            ("http_status", 100, 599),
+            ("timeout_seconds", 5, 120),
+            ("elapsed_ms", 0, 3_600_000),
+            ("request_bytes", 0, 20 * 1024 * 1024),
+        ):
+            value = self.diagnostics.get(key)
+            if type(value) is int and low <= value <= high:
+                result[key] = value
+        return result
 
 
 def strict_json(text):
@@ -48,6 +69,7 @@ class PinnedHTTP(http.client.HTTPConnection):
         self.address, self.deadline = address, deadline
         self.timer = None
         self.deadline_socket = None
+        self.timed_out = threading.Event()
 
     def connect(self):
         self.sock = socket.create_connection(
@@ -59,6 +81,7 @@ class PinnedHTTP(http.client.HTTPConnection):
         def abort():
             sock = self.deadline_socket
             if sock:
+                self.timed_out.set()
                 try:
                     sock.shutdown(socket.SHUT_RDWR)
                 except OSError:
@@ -106,7 +129,30 @@ class PinnedHTTPS(PinnedHTTP):
 
 def chat(config, messages) -> ModelReply:
     """Bounded response and absolute DNS + request deadline. Never expose provider errors."""
-    deadline = time.monotonic() + config["timeout_seconds"]
+    started = time.monotonic()
+    deadline = started + config["timeout_seconds"]
+    stage, request_bytes, response = "dns", None, None
+
+    def diagnostics():
+        values = {
+            "stage": stage,
+            "timeout_seconds": config["timeout_seconds"],
+            "elapsed_ms": max(0, int((time.monotonic() - started) * 1000)),
+        }
+        if request_bytes is not None:
+            values["request_bytes"] = request_bytes
+        if response is not None:
+            values["http_status"] = response.status
+        return values
+
+    def timeout_failure():
+        return ModelFailure(
+            "LLM_TIMEOUT",
+            f"模型请求超过 {config['timeout_seconds']} 秒时限，请适当增大超时或减少输入；是否计费需向服务商确认",
+            retryable=True,
+            diagnostics=diagnostics(),
+        )
+
     u = urlsplit(config["base_url"])
     if u.scheme not in {"http", "https"}:
         raise ModelFailure("LLM_TARGET_BLOCKED", "模型基础地址仅支持 HTTP 或 HTTPS")
@@ -116,19 +162,24 @@ def chat(config, messages) -> ModelReply:
     except MailFailure as error:
         code = "LLM_TARGET_BLOCKED" if error.code == "MAIL_TARGET_BLOCKED" else "LLM_DNS_FAILED"
         raise ModelFailure(
-            code, "模型服务器须为公网地址，DNS 解析或地址检查失败", retryable=error.retryable
+            code,
+            "模型服务器须为公网地址，DNS 解析或地址检查失败",
+            retryable=error.retryable,
+            diagnostics=diagnostics(),
         ) from None
     payload = dict(model=config["model"], messages=messages, stream=False, max_tokens=config["max_tokens"])
     if config["json_mode"]:
         payload["response_format"] = {"type": "json_object"}
+    encoded_payload = json.dumps(payload, ensure_ascii=False).encode()
+    request_bytes = len(encoded_payload)
     connection_type = PinnedHTTPS if u.scheme == "https" else PinnedHTTP
     connection = connection_type(u.hostname, port, address, deadline)
-    response = None
     try:
+        stage = "request"
         connection.request(
             "POST",
             u.path.rstrip("/") + "/chat/completions",
-            body=json.dumps(payload, ensure_ascii=False).encode(),
+            body=encoded_payload,
             headers={
                 "Content-Type": "application/json",
                 "Accept": "application/json",
@@ -136,6 +187,7 @@ def chat(config, messages) -> ModelReply:
                 "Authorization": "Bearer " + config["api_key"],
             },
         )
+        stage = "response_headers"
         response = connection.getresponse()
         if response.status != 200:
             if response.status in {401, 403}:
@@ -144,18 +196,30 @@ def chat(config, messages) -> ModelReply:
                 raise ModelFailure(
                     "LLM_REDIRECT_BLOCKED", "模型重定向已拒绝，请填写最终 HTTP 或 HTTPS 基础地址"
                 )
+            hints = {
+                400: "请检查模型名、JSON 模式、输入长度和输出 token 配置",
+                404: "请检查模型基础地址是否包含正确的 API 路径，以及模型名是否可用",
+                408: "模型服务等待请求超时，请稍后重试或减少输入",
+                413: "请求过大，请减少输入字符上限或拆分资料",
+                422: "请求参数不被支持，请检查模型名、JSON 模式和输出 token 配置",
+                429: "请求限流或配额不足，请检查服务商额度并稍后重试",
+            }
+            hint = hints.get(response.status, "请检查模型服务状态及配置")
+            if response.status >= 500:
+                hint = "模型服务或网关异常，请稍后重试；若持续失败，请检查服务状态、网关超时及输入长度"
             raise ModelFailure(
                 "LLM_RATE_LIMITED" if response.status == 429 else "LLM_HTTP_FAILED",
-                "模型服务返回非成功状态",
-                retryable=response.status == 429 or response.status >= 500,
+                f"模型服务返回 HTTP {response.status}：{hint}",
+                retryable=response.status in {408, 429} or response.status >= 500,
             )
         if response.getheader("Content-Encoding", "identity").lower() not in {"identity", ""}:
             raise ModelFailure("LLM_ENCODING_UNSUPPORTED", "模型响应压缩方式不支持")
+        stage = "response_body"
         data = response.read(MAX_RESPONSE + 1)
         if len(data) > MAX_RESPONSE:
             raise ModelFailure("LLM_RESPONSE_TOO_LARGE", "模型响应超过安全上限")
         if time.monotonic() >= deadline:
-            raise ModelFailure("LLM_TIMEOUT", "模型请求超时，是否计费需向服务商确认", retryable=True)
+            raise timeout_failure()
         try:
             body = strict_json(data)
             if not isinstance(body, dict) or not isinstance(body.get("choices"), list) or not body["choices"]:
@@ -186,16 +250,34 @@ def chat(config, messages) -> ModelReply:
             raise ModelFailure(
                 "LLM_RESPONSE_INVALID", "模型响应不符合 chat completions 约定", retryable=True
             ) from None
-    except ModelFailure:
+    except ModelFailure as error:
+        error.diagnostics = diagnostics()
         raise
     except ssl.SSLError:
-        raise ModelFailure("LLM_TLS_FAILED", "模型 TLS 证书或安全连接校验失败") from None
-    except (TimeoutError, socket.timeout):
-        raise ModelFailure("LLM_TIMEOUT", "模型请求超时，是否计费需向服务商确认", retryable=True) from None
-    except (OSError, http.client.HTTPException):
+        if time.monotonic() >= deadline or getattr(connection, "timed_out", threading.Event()).is_set():
+            raise timeout_failure() from None
         raise ModelFailure(
-            "LLM_NETWORK_FAILED", "模型网络请求失败，不输出供应商私密诊断", retryable=True
+            "LLM_TLS_FAILED",
+            "模型 TLS 证书或安全连接校验失败，请检查证书及 HTTPS 配置",
+            diagnostics=diagnostics(),
         ) from None
+    except (TimeoutError, socket.timeout):
+        raise timeout_failure() from None
+    except (OSError, http.client.HTTPException) as error:
+        # Deadline shutdown can surface as IncompleteRead, RemoteDisconnected or OSError.
+        if time.monotonic() >= deadline or getattr(connection, "timed_out", threading.Event()).is_set():
+            raise timeout_failure() from None
+        if isinstance(error, ConnectionRefusedError):
+            hint = "模型连接被拒绝，请检查基础地址、端口及模型服务是否可用"
+        elif isinstance(error, http.client.RemoteDisconnected):
+            hint = "模型服务在返回响应前关闭连接，请检查服务状态、网关超时及输入长度"
+        elif isinstance(error, http.client.IncompleteRead):
+            hint = "模型响应未接收完整，请稍后重试；若持续失败，请检查网络和网关"
+        elif isinstance(error, (ConnectionResetError, BrokenPipeError)):
+            hint = "模型连接被中断，请稍后重试；若持续失败，请检查网络、网关超时及输入长度"
+        else:
+            hint = "模型网络请求失败，请检查服务器到模型服务的网络连接及基础地址"
+        raise ModelFailure("LLM_NETWORK_FAILED", hint, retryable=True, diagnostics=diagnostics()) from None
     finally:
         if response is not None:
             response.close()

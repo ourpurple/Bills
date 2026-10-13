@@ -316,6 +316,12 @@ class Worker:
                 else "failed"
             )
             finish_row(row, state, failure.code, failure.message)
+            if row.kind in {"llm_parse", "llm_test"}:
+                from .llm_adapter import ModelFailure
+
+                if isinstance(error, ModelFailure):
+                    diagnostics = error.public_diagnostics()
+                    row.result = json.dumps({"diagnostics": diagnostics} if diagnostics else {})
             if state == "retry_wait":
                 row.available_at = utc_naive() + timedelta(seconds=min(300, 15 * 2 ** (row.attempts - 1)))
             box = db.get(Mailbox, row.mailbox_id) if row.mailbox_id else None

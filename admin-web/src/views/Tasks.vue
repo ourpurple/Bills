@@ -57,6 +57,21 @@ const pendingTotal = computed(() =>
     0,
   ),
 )
+const diagnostic = computed(() => {
+  const value = detail.value?.result.diagnostics
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+})
+const modelFailure = computed(
+  () => !!detail.value?.error_code && ['llm_parse', 'llm_test'].includes(detail.value.kind),
+)
+const stages: Record<string, string> = {
+  dns: '解析模型服务器地址',
+  request: '连接模型服务 / 发送请求',
+  response_headers: '等待模型服务响应',
+  response_body: '接收模型响应内容',
+}
 let timer: ReturnType<typeof setInterval> | undefined
 function label(value: string) {
   return labels[value] || value
@@ -229,7 +244,36 @@ onUnmounted(() => {
       <p>创建时间：{{ dateTime(detail.created_at) }}</p>
       <p>下次可执行：{{ dateTime(detail.available_at) }}</p>
       <p class="import-error">{{ detail.error_code }} {{ detail.error_message }}</p>
-      <pre class="source-text">{{ JSON.stringify(detail.result, null, 2) }}</pre>
+      <el-descriptions v-if="diagnostic" title="失败诊断" :column="1" border>
+        <el-descriptions-item v-if="diagnostic.stage" label="失败阶段">
+          {{ stages[String(diagnostic.stage)] || '未知阶段' }}
+        </el-descriptions-item>
+        <el-descriptions-item v-if="typeof diagnostic.http_status === 'number'" label="HTTP 状态码">
+          {{ diagnostic.http_status }}
+        </el-descriptions-item>
+        <el-descriptions-item v-if="typeof diagnostic.elapsed_ms === 'number'" label="请求耗时">
+          {{ (diagnostic.elapsed_ms / 1000).toFixed(1) }} 秒
+        </el-descriptions-item>
+        <el-descriptions-item
+          v-if="typeof diagnostic.timeout_seconds === 'number'"
+          label="配置超时"
+        >
+          {{ diagnostic.timeout_seconds }} 秒
+        </el-descriptions-item>
+        <el-descriptions-item v-if="typeof diagnostic.request_bytes === 'number'" label="请求大小">
+          {{ (diagnostic.request_bytes / 1024).toFixed(1) }} KB
+        </el-descriptions-item>
+      </el-descriptions>
+      <el-alert
+        v-else-if="modelFailure && Object.keys(detail.result).length === 0"
+        type="info"
+        :closable="false"
+        title="该历史任务未记录详细诊断，更新后重试可查看失败阶段和耗时。"
+      />
+      <pre v-else class="source-text">{{ JSON.stringify(detail.result, null, 2) }}</pre>
+      <p v-if="modelFailure" class="muted">
+        建议先运行模型连接测试。若连接测试成功、账单识别仍失败，请结合耗时检查模型或网关超时及输入长度；减少输入可能遗漏账单内容，需人工核对。
+      </p>
     </template></el-dialog
   >
 </template>

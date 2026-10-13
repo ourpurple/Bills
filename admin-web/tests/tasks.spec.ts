@@ -17,7 +17,17 @@ test('system task queue: global navigation, mixed tasks, pagination, details, re
     error_message: index === 2 ? '合成模型失败记录' : null,
     created_at: '2026-10-12T06:34:00Z',
     available_at: '2026-10-12T06:34:00Z',
-    result: { synthetic: true },
+    result: (index === 2
+      ? {
+          diagnostics: {
+            stage: 'response_body',
+            http_status: 200,
+            elapsed_ms: 60000,
+            timeout_seconds: 60,
+            request_bytes: 20480,
+          },
+        }
+      : { synthetic: true }) as Record<string, unknown>,
   }))
   let retried = false
   const queries: string[] = []
@@ -107,7 +117,17 @@ test('system task queue: global navigation, mixed tasks, pagination, details, re
   await rows.first().getByRole('button', { name: '详情', exact: true }).click()
   const detail = page.getByRole('dialog', { name: '任务详情' })
   await expect(detail).toContainText('MODEL_TEST_FAILURE')
-  await expect(detail).toContainText('"synthetic": true')
+  await expect(detail).toContainText('接收模型响应内容')
+  await expect(detail).toContainText('HTTP 状态码')
+  await expect(detail).toContainText('60.0 秒')
+  await expect(detail).toContainText('20.0 KB')
+  await expect(detail.locator('pre')).toHaveCount(0)
+  await detail.getByRole('button', { name: '关闭此对话框' }).click()
+  tasks[2].result = {}
+  await page.getByRole('button', { name: '刷新状态', exact: true }).click()
+  await rows.first().getByRole('button', { name: '详情', exact: true }).click()
+  await expect(detail).toContainText('该历史任务未记录详细诊断')
+  await expect(detail).toContainText('建议先运行模型连接测试')
   await detail.getByRole('button', { name: '关闭此对话框' }).click()
   await rows.first().getByRole('button', { name: '重试', exact: true }).click()
   await page.locator('.el-message-box').getByRole('button', { name: '确定', exact: true }).click()
