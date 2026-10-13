@@ -3,6 +3,7 @@ import { computed, ref, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh, Search, ArrowDown, ArrowUp } from '@element-plus/icons-vue'
+import AccountIdentity from '../components/AccountIdentity.vue'
 import { detailState } from '../model-types'
 import { api, allItems, ApiError } from '../api'
 import { amountText, dateTime, stateText, type Page, type Account, type Statement } from '../types'
@@ -483,17 +484,7 @@ onMounted(async () => {
       "
       ><el-table-column label="卡片 / 尾号 / 银行 / 持卡人" min-width="260"
         ><template #default="{ row }"
-          ><div class="statement-identity">
-            <div v-for="card in row.account.cards" :key="card.id" class="statement-card">
-              <span class="statement-card-name">{{ card.name }}</span>
-              <span class="statement-card-tail">· 尾号 {{ card.last_four }}</span>
-            </div>
-            <div v-if="!row.account.cards.length" class="table-sub">暂未添加卡片</div>
-            <div class="statement-account">
-              {{ row.account.bank_name }} · {{ row.account.cardholder_name }}
-            </div>
-          </div></template
-        ></el-table-column
+          ><AccountIdentity :account="row.account" /></template></el-table-column
       ><el-table-column prop="statement_date" label="账单日" min-width="110" /><el-table-column
         label="本期应还"
         min-width="130"
@@ -901,38 +892,5 @@ onMounted(async () => {
   .statement-filter-footer {
     align-items: flex-start;
   }
-}
-
-.statement-identity {
-  padding: 2px 0;
-}
-.statement-account {
-  margin-top: 4px;
-  color: #7b857d;
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-}
-.statement-card {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0 6px;
-  color: var(--el-text-color-primary);
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.5;
-}
-.statement-card + .statement-card {
-  margin-top: 3px;
-}
-.statement-card-name {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.statement-card-tail {
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
 }
 </style>

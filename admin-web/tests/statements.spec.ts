@@ -1,11 +1,15 @@
 import { test, expect } from '@playwright/test'
 
-for (const width of [1440, 390]) {
-  test(`statement card identity (${width}px)`, async ({ page }, testInfo) => {
+for (const { view, width } of ['statements', 'overview'].flatMap((view) =>
+  [1440, 390].map((width) => ({ view, width })),
+)) {
+  test(`${view} card identity (${width}px)`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 })
     const accounts = [
       {
         id: 'single',
+        bank_code: 'gfb',
+        mode: 'independent',
         bank_id: 'bank-1',
         cardholder_id: 'holder-1',
         name: '账户名称不是卡片名称',
@@ -15,6 +19,8 @@ for (const width of [1440, 390]) {
       },
       {
         id: 'merged',
+        bank_code: 'cmb',
+        mode: 'merged',
         bank_id: 'bank-2',
         cardholder_id: 'holder-2',
         name: '合并还款账户',
@@ -33,6 +39,8 @@ for (const width of [1440, 390]) {
       },
       {
         id: 'empty',
+        bank_code: 'ccb',
+        mode: 'independent',
         bank_id: 'bank-3',
         cardholder_id: 'holder-3',
         name: '待配置账户',
@@ -49,6 +57,7 @@ for (const width of [1440, 390]) {
       amount: '100.00',
       remaining: '100.00',
       due_date: '2026-10-26',
+      days_until_due: 20,
       status: 'confirmed',
       payment_status: 'unpaid',
       overdue: false,
@@ -62,17 +71,45 @@ for (const width of [1440, 390]) {
     await page.route('**/api/v1/admin/statements?*', (route) =>
       route.fulfill({ json: { items: statements, total: statements.length } }),
     )
-    await page.goto('/statements')
+    await page.route('**/api/v1/admin/overview', (route) =>
+      route.fulfill({
+        json: {
+          totals: [{ currency: 'CNY', amount: '300.00' }],
+          latest_statements: statements,
+          historical_unresolved: [],
+          warnings: [],
+          account_count: accounts.length,
+          pending_count: 0,
+          due_soon_count: 0,
+          overdue_count: 0,
+          disclaimer: '测试账单',
+        },
+      }),
+    )
+    await page.goto(view === 'statements' ? '/statements' : '/')
     await expect(page.locator('.statement-identity')).toHaveCount(accounts.length)
-    await expect(
-      page.getByRole('columnheader', { name: '卡片 / 尾号 / 银行 / 持卡人' }),
-    ).toBeVisible()
+    if (view === 'statements') {
+      await expect(
+        page.getByRole('columnheader', { name: '卡片 / 尾号 / 银行 / 持卡人' }),
+      ).toBeVisible()
+    }
     for (const [index, account] of accounts.entries()) {
       const identity = page.locator('.statement-identity').nth(index)
       await expect(identity.locator('.statement-account')).toHaveText(
         `${account.bank_name} · ${account.cardholder_name}`,
       )
       await expect(identity).not.toContainText(account.name)
+      if (view === 'overview') {
+        const row = page.locator('.bill-row').nth(index)
+        await expect(row.locator('.bill-identity small')).toHaveText(
+          `${account.mode === 'merged' ? '多卡合并还款' : '独立还款'} · 2026-10-06`,
+        )
+        const rowBounds = (await row.boundingBox())!
+        const identityBounds = (await identity.boundingBox())!
+        expect(identityBounds.x + identityBounds.width).toBeLessThanOrEqual(
+          rowBounds.x + rowBounds.width,
+        )
+      }
       await expect(identity.locator('.statement-card')).toHaveCount(account.cards.length)
       for (const [cardIndex, card] of account.cards.entries()) {
         const cardRow = identity.locator('.statement-card').nth(cardIndex)
@@ -99,7 +136,7 @@ for (const width of [1440, 390]) {
     }
     await expect(page.locator('.statement-identity').last()).toContainText('暂未添加卡片')
     await page.screenshot({
-      path: testInfo.outputPath(`statement-identity-${width}.png`),
+      path: testInfo.outputPath(`${view}-identity-${width}.png`),
       fullPage: true,
       animations: 'disabled',
     })

@@ -421,13 +421,7 @@ p {
   flex-direction: column;
   gap: 5px;
   flex: 1;
-}
-.bill-identity strong {
-  font-size: 15px;
-}
-.bill-identity span {
-  font-size: 12px;
-  color: #748170;
+  min-width: 0;
 }
 .bill-identity small {
   font-size: 10px;
@@ -952,7 +946,8 @@ p {
     flex-wrap: wrap;
   }
   .bill-identity {
-    min-width: 65%;
+    flex-basis: calc(100% - 55px);
+    max-width: calc(100% - 55px);
   }
   .bill-amount {
     margin-left: 55px;
@@ -1043,9 +1038,6 @@ p {
   }
   .bill-row {
     padding: 17px 13px;
-  }
-  .bill-identity span {
-    font-size: 11px;
   }
   .bill-amount {
     margin-left: 0;

@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowRight, Refresh, Plus } from '@element-plus/icons-vue'
+import AccountIdentity from '../components/AccountIdentity.vue'
 import { api } from '../api'
 import { amountText, stateText, type Overview, type Statement } from '../types'
 const data = ref<Overview | null>(null),
@@ -100,16 +101,8 @@ onMounted(load)
           {{ s.account.bank_name.slice(0, 1) }}
         </div>
         <div class="bill-identity">
-          <strong>{{ s.account.bank_name }}</strong
-          ><span
-            >{{ s.account.cardholder_name }} ·
-            {{
-              s.account.cards
-                .filter((c) => c.active)
-                .map((c) => '尾号 ' + c.last_four)
-                .join(' / ') || s.account.name
-            }}</span
-          ><small
+          <AccountIdentity :account="s.account" />
+          <small
             >{{ s.account.mode === 'merged' ? '多卡合并还款' : '独立还款' }} ·
             {{ s.statement_date }}</small
           >

@@ -57,7 +57,7 @@ for (const width of [1440, 390]) {
     await expect(page.locator('.bill-row')).toHaveCount(cases.length)
     for (const c of cases) {
       const row = page.locator('.bill-row').filter({
-        has: page.getByText(`测试银行 ${c.id}`, { exact: true }),
+        has: page.getByText(`测试银行 ${c.id} · 测试用户`, { exact: true }),
       })
       const amount = row.locator('.bill-amount')
       const deadline = row.locator('.bill-deadline')
