@@ -242,11 +242,17 @@ onMounted(async () => {
       <span class="muted">共 {{ total }} 份账单</span>
     </div>
     <el-table :data="rows" v-loading="loading" empty-text="没有账单，点击“录入账单”创建第一份。"
-      ><el-table-column label="银行 / 账户" min-width="190"
+      ><el-table-column label="银行 / 持卡人 / 卡片 / 尾号" min-width="260"
         ><template #default="{ row }"
-          ><div class="table-title">{{ row.account.bank_name }}</div>
-          <div class="table-sub">
-            {{ row.account.cardholder_name }} · {{ row.account.name }}
+          ><div class="statement-identity">
+            <div class="table-title">
+              {{ row.account.bank_name }} · {{ row.account.cardholder_name }}
+            </div>
+            <div v-for="card in row.account.cards" :key="card.id" class="statement-card table-sub">
+              <span class="statement-card-name">{{ card.name }}</span>
+              <span class="statement-card-tail">· 尾号 {{ card.last_four }}</span>
+            </div>
+            <div v-if="!row.account.cards.length" class="table-sub">暂未添加卡片</div>
           </div></template
         ></el-table-column
       ><el-table-column prop="statement_date" label="账单日" min-width="110" /><el-table-column
@@ -525,3 +531,29 @@ onMounted(async () => {
     ></el-dialog
   >
 </template>
+
+<style scoped>
+.statement-identity {
+  padding: 2px 0;
+}
+.statement-identity .table-title {
+  overflow-wrap: anywhere;
+}
+.statement-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 6px;
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.statement-card-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.statement-card-tail {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+</style>
