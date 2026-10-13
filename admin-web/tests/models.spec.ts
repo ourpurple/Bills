@@ -57,7 +57,10 @@ test('P3: configure → model candidate → review → publish → details → r
   await expect(field('API Key').locator('input')).toHaveValue('')
   await configuration.getByRole('button', { name: '取消', exact: true }).click()
   await page.getByRole('link', { name: '邮箱与导入' }).click()
-  await page.getByRole('tab', { name: '来源资料' }).click()
+  await expect(page.getByRole('tab', { name: '邮件列表', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
   const raw = Buffer.from(
     [
       'From: synthetic@example.test',
@@ -128,7 +131,10 @@ test('P3: configure → model candidate → review → publish → details → r
   await configuration.getByRole('button', { name: '保存模型配置' }).click()
   await expect(configuration).not.toBeVisible()
   await page.getByRole('link', { name: '邮箱与导入' }).click()
-  await page.getByRole('tab', { name: '来源资料' }).click()
+  await expect(page.getByRole('tab', { name: '邮件列表', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
   await sourceRow.getByRole('button', { name: '重新识别', exact: true }).click()
   await page.locator('.el-message-box').getByRole('button', { name: '确定' }).click()
   await expect(page).toHaveURL(/models\?run=/)

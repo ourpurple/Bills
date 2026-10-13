@@ -83,7 +83,7 @@ const labels: Record<string, string> = {
   llm_parse: '大模型识别',
   llm_test: '模型连接测试',
 }
-const tab = ref('mailboxes'),
+const tab = ref('sources'),
   boxes = ref<Mailbox[]>([]),
   sources = ref<Source[]>([])
 const health = ref<Health | null>(null),
@@ -420,54 +420,7 @@ onUnmounted(() => {
   />
   <section class="panel padded section-gap" v-loading="loading">
     <el-tabs v-model="tab">
-      <el-tab-pane label="邮箱配置" name="mailboxes">
-        <div class="section-heading">
-          <div>
-            <h2>每个邮箱，独立进度。</h2>
-            <p>仅支持密码或授权码；需要 OAuth 的邮箱暂不支持。</p>
-          </div>
-          <el-button type="primary" @click="openBox()">新增邮箱</el-button>
-        </div>
-        <div v-if="!boxes.length" class="import-empty">
-          尚未配置邮箱。你也可以先在「来源资料」上传 .eml 或 PDF。
-        </div>
-        <article v-for="box in boxes" :key="box.id" class="mailbox-entry">
-          <div class="mailbox-entry-head">
-            <div>
-              <h3>{{ box.name }}</h3>
-              <p>
-                {{ box.address }} · {{ box.protocol.toUpperCase() }} · {{ box.host }}:{{ box.port }}
-              </p>
-            </div>
-            <el-tag :type="!box.active ? 'info' : box.paused_reason ? 'danger' : 'success'">{{
-              !box.active ? '已停用' : box.paused_reason ? '因错误暂停' : '已启用'
-            }}</el-tag>
-          </div>
-          <p>
-            最近同步：{{ dateTime(box.last_success_at || '') }} · 间隔
-            {{ box.interval_minutes }} 分钟 · 凭证{{
-              box.secret_configured ? '已加密保存' : '未配置'
-            }}
-          </p>
-          <p v-if="box.last_error_code" class="import-error">
-            {{ box.last_error_code }} · 请检查配置，再测试连接。
-          </p>
-          <div class="import-actions">
-            <el-button @click="openBox(box)">编辑邮箱</el-button
-            ><el-button :loading="actionBusy === box.id + 'test'" @click="action(box, 'test')"
-              >测试连接</el-button
-            ><el-button
-              :disabled="!box.active || !!box.paused_reason"
-              :loading="actionBusy === box.id + 'sync'"
-              @click="action(box, 'sync')"
-              >立即同步</el-button
-            ><el-button :disabled="!box.active || !!box.paused_reason" @click="openBackfill(box)"
-              >历史补扫</el-button
-            >
-          </div>
-        </article>
-      </el-tab-pane>
-      <el-tab-pane label="来源资料" name="sources">
+      <el-tab-pane label="邮件列表" name="sources">
         <div class="import-upload">
           <div>
             <h3>导入原邮件或文本型 PDF</h3>
@@ -503,7 +456,7 @@ onUnmounted(() => {
               :value="value" /></el-select
           ><span class="muted">{{ sourceTotal }} 份来源 · 模型识别默认人工触发</span>
         </div>
-        <el-table :data="sources" empty-text="尚无来源资料"
+        <el-table :data="sources" empty-text="尚无邮件或导入资料"
           ><el-table-column label="来源" min-width="190"
             ><template #default="{ row }"
               ><strong>{{ row.subject || row.filename || '无主题邮件' }}</strong>
@@ -572,6 +525,53 @@ onUnmounted(() => {
           layout="prev,pager,next"
           @current-change="load(false)"
         />
+      </el-tab-pane>
+      <el-tab-pane label="邮箱配置" name="mailboxes">
+        <div class="section-heading">
+          <div>
+            <h2>每个邮箱，独立进度。</h2>
+            <p>仅支持密码或授权码；需要 OAuth 的邮箱暂不支持。</p>
+          </div>
+          <el-button type="primary" @click="openBox()">新增邮箱</el-button>
+        </div>
+        <div v-if="!boxes.length" class="import-empty">
+          尚未配置邮箱。你也可以先在「邮件列表」上传 .eml 或 PDF。
+        </div>
+        <article v-for="box in boxes" :key="box.id" class="mailbox-entry">
+          <div class="mailbox-entry-head">
+            <div>
+              <h3>{{ box.name }}</h3>
+              <p>
+                {{ box.address }} · {{ box.protocol.toUpperCase() }} · {{ box.host }}:{{ box.port }}
+              </p>
+            </div>
+            <el-tag :type="!box.active ? 'info' : box.paused_reason ? 'danger' : 'success'">{{
+              !box.active ? '已停用' : box.paused_reason ? '因错误暂停' : '已启用'
+            }}</el-tag>
+          </div>
+          <p>
+            最近同步：{{ dateTime(box.last_success_at || '') }} · 间隔
+            {{ box.interval_minutes }} 分钟 · 凭证{{
+              box.secret_configured ? '已加密保存' : '未配置'
+            }}
+          </p>
+          <p v-if="box.last_error_code" class="import-error">
+            {{ box.last_error_code }} · 请检查配置，再测试连接。
+          </p>
+          <div class="import-actions">
+            <el-button @click="openBox(box)">编辑邮箱</el-button
+            ><el-button :loading="actionBusy === box.id + 'test'" @click="action(box, 'test')"
+              >测试连接</el-button
+            ><el-button
+              :disabled="!box.active || !!box.paused_reason"
+              :loading="actionBusy === box.id + 'sync'"
+              @click="action(box, 'sync')"
+              >立即同步</el-button
+            ><el-button :disabled="!box.active || !!box.paused_reason" @click="openBackfill(box)"
+              >历史补扫</el-button
+            >
+          </div>
+        </article>
       </el-tab-pane>
     </el-tabs>
   </section>

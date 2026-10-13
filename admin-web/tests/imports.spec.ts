@@ -16,6 +16,22 @@ test('P2: inactive mailbox, upload, worker conversion, safe preview and narrow l
   await expect(page.getByRole('heading', { name: '让账单，井然有序。' })).toBeVisible()
   await page.getByRole('link', { name: '邮箱与导入' }).click()
   await expect(page.getByRole('heading', { name: '正在运行', exact: true })).toBeVisible()
+  const mailListTab = page.getByRole('tab', { name: '邮件列表', exact: true })
+  const mailboxTab = page.getByRole('tab', { name: '邮箱配置', exact: true })
+  await expect(mailListTab).toHaveAttribute('aria-selected', 'true')
+  await expect(mailboxTab).toHaveAttribute('aria-selected', 'false')
+  await expect(page.getByRole('tab').first()).toHaveText('邮件列表')
+  await expect(page.getByLabel('选择资料文件')).toBeAttached()
+  await expect(page.locator('.import-upload')).toBeVisible()
+  await mailboxTab.click()
+  await expect(page.getByRole('button', { name: '新增邮箱', exact: true })).toBeVisible()
+  await page.reload()
+  await expect(mailListTab).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('.import-upload')).toBeVisible()
+  await mailboxTab.click()
+  await expect(
+    page.getByText('尚未配置邮箱。你也可以先在「邮件列表」上传 .eml 或 PDF。'),
+  ).toBeVisible()
   await page.getByRole('button', { name: '新增邮箱', exact: true }).click()
   const dialog = page.getByRole('dialog')
   const field = (label: string) =>
@@ -38,7 +54,11 @@ test('P2: inactive mailbox, upload, worker conversion, safe preview and narrow l
   await dialog.getByRole('button', { name: '取消', exact: true }).click()
 
   const before = await (await page.request.get('/api/v1/admin/statements')).json()
-  await page.getByRole('tab', { name: '来源资料' }).click()
+  await mailListTab.click()
+  await expect(page.getByRole('tab', { name: '邮件列表', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
   expect(
     (await page.locator('.import-filters .el-select').first().boundingBox())?.width,
   ).toBeGreaterThan(150)
@@ -90,7 +110,10 @@ test('P2: inactive mailbox, upload, worker conversion, safe preview and narrow l
   )
   await page.getByRole('link', { name: '邮箱与导入' }).click()
   await expect(page.getByRole('tab', { name: '任务队列' })).toHaveCount(0)
-  await page.getByRole('tab', { name: '来源资料' }).click()
+  await expect(page.getByRole('tab', { name: '邮件列表', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
   await page.screenshot({ path: test.info().outputPath('imports.png'), fullPage: true })
   await page.setViewportSize({ width: 390, height: 844 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(
@@ -146,7 +169,10 @@ test('source recovery: refetch confirmation queues the selected email without mo
   await page.locator('#login-password').fill('browser-test-only-2026')
   await page.getByRole('button', { name: '进入工作台' }).click()
   await page.getByRole('link', { name: '邮箱与导入' }).click()
-  await page.getByRole('tab', { name: '来源资料' }).click()
+  await expect(page.getByRole('tab', { name: '邮件列表', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
   const row = page.getByRole('row').filter({ hasText: source.subject })
   await row.getByRole('button', { name: '安全预览', exact: true }).click()
   const preview = page.getByRole('dialog', { name: '安全资料预览 · 不是账单解析结果' })
@@ -216,7 +242,10 @@ test('source progress distinguishes prepared, pending review and saved bills', a
   await page.locator('#login-password').fill('browser-test-only-2026')
   await page.getByRole('button', { name: '进入工作台' }).click()
   await page.getByRole('link', { name: '邮箱与导入' }).click()
-  await page.getByRole('tab', { name: '来源资料' }).click()
+  await expect(page.getByRole('tab', { name: '邮件列表', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
   const row = (subject: string) => page.getByRole('row').filter({ hasText: subject })
   await expect(row('仅完成资料转换')).toContainText('文本已准备')
   await expect(row('模型识别等待核对')).toContainText('已识别 · 待核对')
