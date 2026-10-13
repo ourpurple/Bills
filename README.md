@@ -144,7 +144,7 @@ npm run test:e2e
 
 ## P2 / P3 导入与备份补充
 
-- 「邮箱与导入」支持多个 IMAP / POP3 邮箱、连接测试、同步 / 补扫、任务详情和重试，以及原邮件 / PDF 上传、安全纯文本预览。
+- 「邮件中心」支持多个 IMAP / POP3 邮箱、连接测试、同步 / 补扫、任务详情和重试，以及原邮件 / PDF 上传、安全纯文本预览。
 - TLS 证书必须验证，只连接公网；OAuth、扫描 PDF、加密 PDF、压缩附件首版不支持。
 - `python -m app.worker --healthcheck` 仅检查最近心跳；建议一个 worker。API 可以在 worker 停止时继续管理已有账单，任务会排队。
 - **SQLite 的 `backup` 命令只备份数据库，不包括原始 / 转换资料和主密钥。** P2 / P3 完整恢复必须同时保存 `sources/` 目录及单独安全保存的 `BILLS_MASTER_KEY`。见 `docs/deployment.md`。

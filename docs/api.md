@@ -101,9 +101,11 @@
 | GET /tasks | 支持 state / mailbox_id，分页；任务状态、进度、尝试、固定安全错误、结果摘要 |
 | POST /tasks/{id}/retry | 202，仅 failed / unsupported / cancelled；新任务保留旧记录；邮箱目标变更可能禁止旧邮件重取 |
 | GET /import-status | P2、密钥配置布尔、worker_online / last_heartbeat、任务统计、ready来源数；模型 / 提醒 not_implemented |
-| GET /sources | 支持 state / mailbox_id，分页；来源状态和 input_id，不直接输出正文 |
+| GET /sources | 支持 state / mailbox_id / keyword（主题及发件人字面搜索），分页；来源状态、input_id、suspected_bill、ignored、can_parse，不直接输出正文 |
 | POST /sources/upload | 原始 bytes，不是 multipart；X-Filename 为 URL 编码文件名；202，source / task / duplicate |
 | POST /sources/{id}/reprocess | JSON `mode: reconvert / refetch`；202，重新转换已保存原件或强制单封重收后转换；不重复创建来源，活动任务互斥 |
+| POST /sources/{id}/ignore | 手动忽略；保留原件、输入和已保存账单；有活动任务409 |
+| POST /sources/{id}/restore | 恢复忽略；复用已有输入，否则排入单封收取 / 转换；非忽略状态409 |
 | GET /sources/{id}/preview | 纯文本 JSON `{source,input,llm_parsed:false}`；没转换409；只管理员可看 |
 
 上传：`Content-Type: application/octet-stream`，正文为 EML / PDF 原文件，X-Filename 最大1500字符，解码展示名最多180字。EML20MiB / PDF10MiB，PDF magic校验、空文件、非法扩展名、流大小及20秒接收超时校验；待执行任务超过1000拒绝新上传。重复原文件返回已有来源 / 最近任务，不自动重试旧格式错误，请使用来源中的「重新转换」或「重新收取并转换」，或在任务队列操作。

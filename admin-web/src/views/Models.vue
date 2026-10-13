@@ -484,7 +484,7 @@ onUnmounted(() => clearInterval(timer))
                 :value="s" /></el-select
             ><span class="muted">{{ total }} 份候选 · 不同币种分别入账</span>
           </div>
-          <el-table :data="candidates" empty-text="暂无候选，请先在邮箱与导入中识别资料"
+          <el-table :data="candidates" empty-text="暂无候选，请先在邮件中心中识别资料"
             ><el-table-column label="识别账户" min-width="190"
               ><template #default="{ row }"
                 ><strong

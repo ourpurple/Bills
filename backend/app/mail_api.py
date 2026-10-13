@@ -9,12 +9,22 @@ from fastapi import APIRouter, Depends, Header, Query, Request
 from sqlalchemy import case, func, or_, select
 
 from .core import DomainError, utc_naive
+from .mail_classification import suspected_credit_card_bill
 from .mail_crypto import encrypt_secret
 from .mail_input import metadata
 from .mail_jobs import ACTIVE, enqueue, queue_reprocess, queue_retry
 from .mail_schemas import MailboxConfig, ScanRange, SourceReprocess
 from .mail_storage import content_hash, read_blob, write_blob
-from .models import Mailbox, MailSource, ModelCandidate, ModelRun, Statement, Task, WorkerHeartbeat
+from .models import (
+    Mailbox,
+    MailSource,
+    ModelCandidate,
+    ModelRun,
+    PreparedInput,
+    Statement,
+    Task,
+    WorkerHeartbeat,
+)
 from .security import administrator, audit, get_db
 from .services import require, stamp
 
@@ -109,7 +119,7 @@ def source_model_progress(db, source_ids):
         .where(MailSource.id.in_(source_ids), ModelRun.state == "succeeded")
         .group_by(MailSource.id)
     )
-    return {
+    progress = {
         row.source_id: dict(
             llm_parsed=True,
             saved_statement_count=row.saved_statement_count,
@@ -117,6 +127,13 @@ def source_model_progress(db, source_ids):
         )
         for row in rows
     }
+    for source_id, input_state in db.execute(
+        select(MailSource.id, PreparedInput.state)
+        .join(PreparedInput, PreparedInput.id == MailSource.input_id)
+        .where(MailSource.id.in_(source_ids))
+    ):
+        progress.setdefault(source_id, {})["can_parse"] = input_state in {"ready", "partial"}
+    return progress
 
 
 def source_json(row, progress=None):
@@ -139,7 +156,10 @@ def source_json(row, progress=None):
         sent_at=stamp(row.sent_at),
         created_at=stamp(row.created_at),
         raw_available=bool(row.raw_hash),
+        suspected_bill=suspected_credit_card_bill(row.subject, row.sender),
+        ignored=row.state == "skipped",
         llm_parsed=False,
+        can_parse=bool(row.input_id) and row.state in {"ready", "partial"},
         saved_statement_count=0,
         pending_candidate_count=0,
     )
@@ -296,6 +316,7 @@ def import_status(request: Request, db=Depends(get_db, scope="function")):
 
 @router.get("/sources")
 def sources(
+    keyword: str = Query("", max_length=200),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     state: str | None = None,
@@ -307,6 +328,13 @@ def sources(
         query = query.where(MailSource.state == state)
     if mailbox_id:
         query = query.where(MailSource.mailbox_id == mailbox_id)
+    if keyword.strip():
+        query = query.where(
+            or_(
+                MailSource.subject.contains(keyword.strip(), autoescape=True),
+                MailSource.sender.contains(keyword.strip(), autoescape=True),
+            )
+        )
     result = paginated(
         db, query.order_by(MailSource.created_at.desc(), MailSource.id), source_json, page, page_size
     )
@@ -398,6 +426,47 @@ def reprocess_source(
     task = queue_reprocess(db, source, body.mode)
     audit(db, actor.id, "source." + body.mode + "_queued", source.id)
     return task_json(task)
+
+
+@router.post("/sources/{object_id}/ignore")
+def ignore_source(
+    object_id: str,
+    db=Depends(get_db, scope="function"),
+    actor=Depends(administrator, scope="function"),
+):
+    source = require(db, MailSource, object_id)
+    if db.scalar(select(Task.id).where(Task.source_id == source.id, Task.state.in_(ACTIVE))):
+        raise DomainError("SOURCE_BUSY", "该邮件正在处理，请等待当前任务完成后再忽略", 409)
+    source.state, source.reason = "skipped", "MANUALLY_IGNORED"
+    audit(db, actor.id, "source.ignored", source.id)
+    return source_json(source, source_model_progress(db, [source.id]))
+
+
+@router.post("/sources/{object_id}/restore")
+def restore_source(
+    object_id: str,
+    db=Depends(get_db, scope="function"),
+    actor=Depends(administrator, scope="function"),
+):
+    source = require(db, MailSource, object_id)
+    if source.state != "skipped":
+        raise DomainError("SOURCE_NOT_IGNORED", "该邮件未被忽略，请刷新后重试", 409)
+    if db.scalar(select(Task.id).where(Task.source_id == source.id, Task.state.in_(ACTIVE))):
+        raise DomainError("SOURCE_BUSY", "该邮件正在处理，请等待当前任务完成后再恢复", 409)
+    content = db.get(PreparedInput, source.input_id) if source.input_id else None
+    if content:
+        source.state = content.state
+        source.reason = (
+            "INPUT_PARTIAL"
+            if content.state == "partial"
+            else ("INPUT_UNSUPPORTED" if content.state == "unsupported" else None)
+        )
+    else:
+        # Restore is an explicit request: recover a header-only ignored email
+        # from its original mailbox, bypassing the automatic screening gate.
+        queue_reprocess(db, source, "reconvert" if source.raw_hash else "refetch")
+    audit(db, actor.id, "source.restored", source.id)
+    return source_json(source, source_model_progress(db, [source.id]))
 
 
 @router.get("/sources/{object_id}/preview")

@@ -25,7 +25,7 @@ LIMITS = dict(chars=250_000, pages=80, attachment=10 * 1024 * 1024)
 
 def message(
     body="测试正文，应还 123.45 元。",
-    subject="测试电子账单",
+    subject="测试信用卡电子账单",
     sender="bank@example.test",
     html=False,
     sent="Thu, 08 Oct 2026 10:00:00 +0800",
@@ -382,7 +382,7 @@ def test_filters_and_oversize_no_body_fetch(admin):
     admin.post(f"/api/v1/admin/mailboxes/{box['id']}/sync", json={})
     drain(worker(admin, factory))
     sources = admin.get("/api/v1/admin/sources").json()["items"]
-    assert {s["reason"] for s in sources} == {"FILTERED", "MAIL_TOO_LARGE"}
+    assert {s["reason"] for s in sources} == {"NOT_CREDIT_CARD_BILL", "MAIL_TOO_LARGE"}
     assert not any(e[0] == "fetch" for e in factory.events)
 
 

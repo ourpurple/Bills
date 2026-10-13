@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 
 from .core import DomainError, new_id, utc_naive
+from .mail_classification import suspected_credit_card_bill
 from .mail_crypto import decrypt_secret
 from .mail_input import metadata, prepare_isolated
 from .mail_storage import content_hash, read_blob, write_blob
@@ -466,7 +467,14 @@ class Worker:
             row = owned(db, task.id, task.lease_token)
             guard_mailbox(db, row)
             source = db.scalar(select(MailSource).where(MailSource.identity_key == identity))
-            already = bool(source and (source.raw_hash or source.state not in {"skipped", "fetch_failed"}))
+            already = bool(
+                source
+                and (
+                    source.raw_hash
+                    or source.reason == "MANUALLY_IGNORED"
+                    or source.state not in {"skipped", "fetch_failed"}
+                )
+            )
         data, info, reason, size, failure = None, {}, None, 0, None
         if not already:
             try:
@@ -474,6 +482,8 @@ class Worker:
                 info = metadata(header)
                 if size > self.settings.mail_max_bytes:
                     reason = "MAIL_TOO_LARGE"
+                elif not suspected_credit_card_bill(info["subject"], info["sender"]):
+                    reason = "NOT_CREDIT_CARD_BILL"
                 elif not info["sent_at"]:
                     reason = "MAIL_DATE_UNKNOWN"
                 elif info["sent_at"].replace(tzinfo=timezone.utc).astimezone(
@@ -532,7 +542,11 @@ class Worker:
                     enqueue(db, "prepare_input", source=source)
                 elif reason:
                     source.state, source.reason = (
-                        ("skipped" if reason in {"OUTSIDE_RANGE", "FILTERED"} else "unsupported"),
+                        (
+                            "skipped"
+                            if reason in {"OUTSIDE_RANGE", "FILTERED", "NOT_CREDIT_CARD_BILL"}
+                            else "unsupported"
+                        ),
                         reason,
                     )
                 elif failure:
@@ -624,6 +638,16 @@ class Worker:
             source = db.get(MailSource, row.source_id)
             if not source.raw_hash:
                 raise DomainError("SOURCE_UNAVAILABLE", "原始资料不存在", 404)
+            # Recheck old queued work, but explicit upload/recovery remains available.
+            if source.reason == "MANUALLY_IGNORED" or (
+                source.protocol != "upload"
+                and not json.loads(row.payload).get("source_reprocess")
+                and not suspected_credit_card_bill(source.subject, source.sender)
+            ):
+                source.state = "skipped"
+                source.reason = source.reason or "NOT_CREDIT_CARD_BILL"
+                finish_row(row, "succeeded")
+                return
             raw_hash, media_type = source.raw_hash, source.media_type
         read_blob(self.settings, raw_hash)  # Verify immutable source before handing it to subprocess.
         result = prepare_isolated(self.settings, raw_hash, media_type)

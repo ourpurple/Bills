@@ -56,7 +56,7 @@ test('P3: configure → model candidate → review → publish → details → r
   )
   await expect(field('API Key').locator('input')).toHaveValue('')
   await configuration.getByRole('button', { name: '取消', exact: true }).click()
-  await page.getByRole('link', { name: '邮箱与导入' }).click()
+  await page.getByRole('link', { name: '邮件中心' }).click()
   await expect(page.getByRole('tab', { name: '邮件列表', exact: true })).toHaveAttribute(
     'aria-selected',
     'true',
@@ -130,7 +130,7 @@ test('P3: configure → model candidate → review → publish → details → r
   await field('模型名称').locator('input').fill('synthetic-review-v2')
   await configuration.getByRole('button', { name: '保存模型配置' }).click()
   await expect(configuration).not.toBeVisible()
-  await page.getByRole('link', { name: '邮箱与导入' }).click()
+  await page.getByRole('link', { name: '邮件中心' }).click()
   await expect(page.getByRole('tab', { name: '邮件列表', exact: true })).toHaveAttribute(
     'aria-selected',
     'true',

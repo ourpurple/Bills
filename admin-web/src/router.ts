@@ -15,7 +15,7 @@ const router = createRouter({
     { path: '/', component: Overview, meta: { title: '账单概览' } },
     { path: '/accounts', component: Accounts, meta: { title: '账户与卡片' } },
     { path: '/statements', component: Statements, meta: { title: '账单管理' } },
-    { path: '/imports', component: Imports, meta: { title: '邮箱与导入' } },
+    { path: '/imports', component: Imports, meta: { title: '邮件中心' } },
     { path: '/models', component: Models, meta: { title: '模型与核对' } },
     { path: '/tasks', component: Tasks, meta: { title: '任务队列' } },
     { path: '/settings', component: Settings, meta: { title: '安全与设置' } },

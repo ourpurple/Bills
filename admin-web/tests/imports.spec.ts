@@ -14,7 +14,7 @@ test('P2: inactive mailbox, upload, worker conversion, safe preview and narrow l
   await page.locator('#login-password').fill('browser-test-only-2026')
   await page.getByRole('button', { name: '进入工作台' }).click()
   await expect(page.getByRole('heading', { name: '让账单，井然有序。' })).toBeVisible()
-  await page.getByRole('link', { name: '邮箱与导入' }).click()
+  await page.getByRole('link', { name: '邮件中心' }).click()
   await expect(page.getByRole('heading', { name: '正在运行', exact: true })).toBeVisible()
   const mailListTab = page.getByRole('tab', { name: '邮件列表', exact: true })
   const mailboxTab = page.getByRole('tab', { name: '邮箱配置', exact: true })
@@ -77,7 +77,7 @@ test('P2: inactive mailbox, upload, worker conversion, safe preview and narrow l
   await page.getByLabel('选择资料文件').setInputFiles(upload)
   const row = page.getByRole('row').filter({ hasText: 'Synthetic P2 safe preview' })
   await expect(row).toContainText('文本已准备', { timeout: 20000 })
-  await row.getByRole('button', { name: '安全预览' }).click()
+  await row.getByRole('button', { name: '查看详情' }).click()
   const preview = page.getByRole('dialog', { name: '安全资料预览 · 不是账单解析结果' })
   await expect(preview.locator('pre')).toContainText('Safe source 123.45')
   await expect(preview.locator('pre')).not.toContainText('p2Unsafe')
@@ -108,7 +108,7 @@ test('P2: inactive mailbox, upload, worker conversion, safe preview and narrow l
   await expect(page.getByRole('row').filter({ hasText: '通用资料转换' }).first()).toContainText(
     '任务完成',
   )
-  await page.getByRole('link', { name: '邮箱与导入' }).click()
+  await page.getByRole('link', { name: '邮件中心' }).click()
   await expect(page.getByRole('tab', { name: '任务队列' })).toHaveCount(0)
   await expect(page.getByRole('tab', { name: '邮件列表', exact: true })).toHaveAttribute(
     'aria-selected',
@@ -168,13 +168,13 @@ test('source recovery: refetch confirmation queues the selected email without mo
   await page.getByLabel('用户名', { exact: true }).fill('e2e-admin')
   await page.locator('#login-password').fill('browser-test-only-2026')
   await page.getByRole('button', { name: '进入工作台' }).click()
-  await page.getByRole('link', { name: '邮箱与导入' }).click()
+  await page.getByRole('link', { name: '邮件中心' }).click()
   await expect(page.getByRole('tab', { name: '邮件列表', exact: true })).toHaveAttribute(
     'aria-selected',
     'true',
   )
   const row = page.getByRole('row').filter({ hasText: source.subject })
-  await row.getByRole('button', { name: '安全预览', exact: true }).click()
+  await row.getByRole('button', { name: '查看详情', exact: true }).click()
   const preview = page.getByRole('dialog', { name: '安全资料预览 · 不是账单解析结果' })
   await expect(preview).toContainText('正文字符解码失败')
   await preview.getByRole('button', { name: '重新收取并转换', exact: true }).click()
@@ -188,7 +188,7 @@ test('source recovery: refetch confirmation queues the selected email without mo
   await expect(row).toContainText('等待转换')
   expect(operations).toEqual([{ mode: 'refetch' }])
   expect(modelRequests).toEqual([])
-  await expect(row.getByRole('button', { name: '重新收取并转换', exact: true })).toBeDisabled()
+  await expect(row.getByRole('button', { name: '转为文本', exact: true })).toBeDisabled()
 })
 
 test('source progress distinguishes prepared, pending review and saved bills', async ({ page }) => {
@@ -241,7 +241,7 @@ test('source progress distinguishes prepared, pending review and saved bills', a
   await page.getByLabel('用户名', { exact: true }).fill('e2e-admin')
   await page.locator('#login-password').fill('browser-test-only-2026')
   await page.getByRole('button', { name: '进入工作台' }).click()
-  await page.getByRole('link', { name: '邮箱与导入' }).click()
+  await page.getByRole('link', { name: '邮件中心' }).click()
   await expect(page.getByRole('tab', { name: '邮件列表', exact: true })).toHaveAttribute(
     'aria-selected',
     'true',
@@ -258,6 +258,155 @@ test('source progress distinguishes prepared, pending review and saved bills', a
   await expect(row('已保存后重新转换')).toContainText('已识别并保存')
   await expect(row('已保存后重新转换')).toContainText('等待转换')
   await page.screenshot({ path: test.info().outputPath('source-progress.png'), fullPage: true })
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(
+    false,
+  )
+})
+
+test('mail center: suspected tags, ignored details, manual actions and batch controls', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1920, height: 1080 })
+  const base = {
+    mailbox_id: 'demo-mailbox',
+    filename: '',
+    sender: '广发银行 <creditcard@example.test>',
+    size_bytes: 1024,
+    created_at: '2026-10-13T12:17:39+08:00',
+    llm_parsed: false,
+    saved_statement_count: 0,
+    pending_candidate_count: 0,
+  }
+  const sources = [
+    {
+      ...base,
+      id: 'bill',
+      subject: '广发信用卡 2026年10月电子账单',
+      suspected_bill: true,
+      ignored: false,
+      state: 'ready',
+      reason: null,
+      raw_available: true,
+      input_id: 'bill-input',
+      can_parse: true,
+    },
+    {
+      ...base,
+      id: 'reminder',
+      subject: '【广发卡 09月还款提醒】',
+      suspected_bill: false,
+      ignored: true,
+      state: 'skipped',
+      reason: 'NOT_CREDIT_CARD_BILL',
+      raw_available: false,
+      input_id: null,
+      can_parse: false,
+    },
+    {
+      ...base,
+      id: 'club',
+      subject: '金鹏俱乐部9月电子对账单',
+      sender: '金鹏俱乐部 <club@example.test>',
+      suspected_bill: false,
+      ignored: true,
+      state: 'skipped',
+      reason: 'NOT_CREDIT_CARD_BILL',
+      raw_available: false,
+      input_id: null,
+      can_parse: false,
+    },
+  ]
+  const actions: string[] = []
+  const modelCalls: string[] = []
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && request.url().includes('/parse'))
+      modelCalls.push(request.url())
+  })
+  await page.route('**/api/v1/admin/mailboxes*', async (route) => {
+    await route.fulfill({
+      json: {
+        items: [
+          {
+            id: 'demo-mailbox',
+            name: '测试邮箱',
+            address: 'owner@example.test',
+            protocol: 'imap',
+            host: 'imap.example.test',
+            port: 993,
+            active: true,
+            sender_filters: [],
+            subject_filters: [],
+          },
+        ],
+        total: 1,
+      },
+    })
+  })
+  await page.route('**/api/v1/admin/sources?*', async (route) => {
+    await route.fulfill({ json: { items: sources, total: sources.length, page: 1, page_size: 20 } })
+  })
+  await page.route('**/api/v1/admin/sources/*/ignore', async (route) => {
+    const id = route.request().url().split('/').at(-2)!
+    actions.push(`ignore:${id}`)
+    const source = sources.find((s) => s.id === id)!
+    source.state = 'skipped'
+    source.reason = 'MANUALLY_IGNORED'
+    source.ignored = true
+    await route.fulfill({ json: source })
+  })
+  await page.route('**/api/v1/admin/sources/*/restore', async (route) => {
+    const id = route.request().url().split('/').at(-2)!
+    actions.push(`restore:${id}`)
+    const source = sources.find((s) => s.id === id)!
+    source.state = source.input_id ? 'ready' : 'pending'
+    source.reason = null
+    source.ignored = false
+    await route.fulfill({ json: source })
+  })
+  await page.goto('/login')
+  await page.getByLabel('用户名', { exact: true }).fill('e2e-admin')
+  await page.locator('#login-password').fill('browser-test-only-2026')
+  await page.getByRole('button', { name: '进入工作台' }).click()
+  await page.getByRole('link', { name: '邮件中心' }).click()
+  const row = (subject: string) => page.getByRole('row').filter({ hasText: subject })
+  const bill = row(sources[0].subject)
+  const reminder = row(sources[1].subject)
+  await expect(bill).toContainText('疑似账单')
+  await expect(bill).toContainText('owner@example.test')
+  await expect(reminder).toContainText('已忽略')
+  await expect(reminder).not.toContainText('疑似账单')
+  await expect(bill.getByRole('button', { name: '重新转换', exact: true })).toBeVisible()
+  await expect(bill.getByRole('button', { name: '模型识别', exact: true })).toBeVisible()
+  await expect(reminder.getByRole('button', { name: '收取并转文本', exact: true })).toBeVisible()
+  await reminder.getByRole('button', { name: '查看详情', exact: true }).click()
+  const drawer = page.getByRole('dialog', { name: '安全资料预览 · 不是账单解析结果' })
+  await expect(drawer).toContainText('未通过信用卡账单初筛')
+  await expect(drawer.getByRole('button', { name: '重新收取并转换', exact: true })).toBeVisible()
+  await drawer.press('Escape')
+  await expect(drawer).not.toBeVisible()
+  await page.screenshot({ path: test.info().outputPath('mail-center.png'), fullPage: true })
+  await bill.getByRole('button', { name: '忽略', exact: true }).click()
+  await page
+    .getByRole('dialog', { name: '忽略邮件', exact: true })
+    .getByRole('button', { name: '取消', exact: true })
+    .click()
+  expect(actions).toEqual([])
+  await bill.locator('.el-checkbox').click()
+  await expect(bill.getByRole('checkbox')).toBeChecked()
+  await page.getByRole('button', { name: '忽略所选', exact: true }).click()
+  await page
+    .getByRole('dialog', { name: '忽略邮件', exact: true })
+    .getByRole('button', { name: '确定', exact: true })
+    .click()
+  await expect(bill).toContainText('已忽略')
+  await expect(bill.getByRole('button', { name: '模型识别', exact: true })).toBeVisible()
+  await bill.getByRole('button', { name: '恢复', exact: true }).click()
+  await expect(bill).toContainText('文本已准备')
+  await reminder.getByRole('button', { name: '恢复', exact: true }).click()
+  await expect(reminder).toContainText('等待转换')
+  expect(actions).toEqual(['ignore:bill', 'restore:bill', 'restore:reminder'])
+  expect(modelCalls).toEqual([])
   await page.setViewportSize({ width: 390, height: 844 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(
     false,

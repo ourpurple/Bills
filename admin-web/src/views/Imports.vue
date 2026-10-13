@@ -37,6 +37,9 @@ interface Source {
   size_bytes: number
   created_at: string
   input_id: string | null
+  can_parse: boolean
+  suspected_bill: boolean
+  ignored: boolean
   raw_available: boolean
   llm_parsed: boolean
   saved_statement_count: number
@@ -55,7 +58,7 @@ interface Preview {
     state: string
     warnings: string[]
     parts: { name: string; text: string; media_type: string }[]
-  }
+  } | null
 }
 const router = useRouter()
 const labels: Record<string, string> = {
@@ -73,7 +76,7 @@ const labels: Record<string, string> = {
   pending_review: '已识别 · 待核对',
   parsed: '已识别 · 未保存',
   partial: '部分文本已准备',
-  skipped: '已筛除',
+  skipped: '已忽略',
   fetch_failed: '取信失败',
   conversion_failed: '转换失败',
   mail_sync: '邮箱同步',
@@ -90,6 +93,10 @@ const health = ref<Health | null>(null),
   loading = ref(false),
   saving = ref(false),
   uploadBusy = ref(false)
+const sourceMailbox = ref(''),
+  sourceKeyword = ref(''),
+  selectedSources = ref<Source[]>([]),
+  ignoreBusy = ref(false)
 const sourceState = ref(''),
   sourcePage = ref(1),
   sourceTotal = ref(0)
@@ -100,6 +107,10 @@ const dialog = ref(false),
 const range = ref<string[]>([]),
   preview = ref<Preview | null>(null),
   previewOpen = ref(false)
+const wideTable = ref(window.innerWidth >= 1000)
+function resizeTable() {
+  wideTable.value = window.innerWidth >= 1000
+}
 const actionBusy = ref('')
 const reprocessBusy = ref('')
 let timer: ReturnType<typeof setInterval> | undefined
@@ -126,6 +137,28 @@ function label(value: string) {
 function boxName(id: string | null) {
   return boxes.value.find((b) => b.id === id)?.name || '手工上传'
 }
+function mailTime(value: string) {
+  if (!value) return '—'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime())
+    ? '—'
+    : date.toLocaleString('zh-CN', {
+        timeZone: 'Asia/Shanghai',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      })
+}
+function boxAddress(id: string | null) {
+  return boxes.value.find((b) => b.id === id)?.address || (id ? '邮箱已移除' : '手工上传')
+}
+function ignored(row: Source) {
+  return row.ignored || row.state === 'skipped'
+}
 function color(state: string): 'success' | 'warning' | 'danger' | 'info' {
   if (['ready', 'succeeded', 'saved'].includes(state)) return 'success'
   if (['failed', 'fetch_failed', 'conversion_failed'].includes(state)) return 'danger'
@@ -133,7 +166,13 @@ function color(state: string): 'success' | 'warning' | 'danger' | 'info' {
     return 'warning'
   return 'info'
 }
+function canIdentify(row: Source) {
+  return (
+    !!row.input_id && (['ready', 'partial'].includes(row.state) || (ignored(row) && row.can_parse))
+  )
+}
 function sourceStatus(row: Source) {
+  if (ignored(row)) return 'skipped'
   if (row.saved_statement_count > 0)
     return row.pending_candidate_count > 0 ? 'partially_saved' : 'saved'
   if (row.pending_candidate_count > 0) return 'pending_review'
@@ -146,7 +185,9 @@ async function load(silent = false) {
     const [b, h, s] = await Promise.all([
       allItems<Mailbox>('/admin/mailboxes'),
       api<Health>('/admin/import-status'),
-      api<Page<Source>>(`/admin/sources?page=${sourcePage.value}&state=${sourceState.value}`),
+      api<Page<Source>>(
+        `/admin/sources?page=${sourcePage.value}&state=${sourceState.value}&mailbox_id=${sourceMailbox.value}&keyword=${encodeURIComponent(sourceKeyword.value)}`,
+      ),
     ])
     boxes.value = b
     health.value = h
@@ -314,6 +355,10 @@ async function identify(row: Source, force = false) {
 }
 function warningText(code: string) {
   const messages: Record<string, string> = {
+    NOT_CREDIT_CARD_BILL: '未通过信用卡账单初筛，已自动忽略；如有误判，可手动转换和识别。',
+    MANUALLY_IGNORED: '已手动忽略，不再自动处理。原邮件和已有账单均保留。',
+    FILTERED: '未匹配邮箱的发件人或主题筛选条件。',
+    OUTSIDE_RANGE: '邮件日期不在本次同步范围内。',
     NO_TEXT: '未提取到可用文字',
     TEXT_DECODE_FAILED: '正文字符解码失败，可尝试重新转换',
     TEXT_CHARSET_FALLBACK: '已使用兼容字符编码，请核对正文',
@@ -355,10 +400,47 @@ async function reprocess(row: Source, mode: 'reconvert' | 'refetch') {
 }
 async function showPreview(row: Source) {
   try {
-    preview.value = await api<Preview>(`/admin/sources/${row.id}/preview`)
+    preview.value = row.input_id
+      ? await api<Preview>(`/admin/sources/${row.id}/preview`)
+      : { source: row, input: null }
     previewOpen.value = true
   } catch (e) {
     ElMessage.error((e as Error).message)
+  }
+}
+async function changeIgnored(rows: Source[], restore = false) {
+  if (!rows.length || ignoreBusy.value) return
+  if (!restore) {
+    try {
+      await ElMessageBox.confirm(
+        `确认忽略这 ${rows.length} 封邮件？原邮件、识别结果和已保存账单不会删除，可随时恢复。`,
+        '忽略邮件',
+        { type: 'warning' },
+      )
+    } catch {
+      return
+    }
+  }
+  ignoreBusy.value = true
+  let completed = 0
+  const failures: string[] = []
+  try {
+    for (const row of rows) {
+      try {
+        await api(`/admin/sources/${row.id}/${restore ? 'restore' : 'ignore'}`, 'POST')
+        completed++
+      } catch (e) {
+        failures.push((e as Error).message)
+      }
+    }
+    if (completed)
+      ElMessage.success(
+        restore ? '邮件已恢复；未转换的邮件已加入转换队列' : `已忽略 ${completed} 封邮件`,
+      )
+    if (failures.length) ElMessage.warning(`${failures.length} 封未完成：${failures[0]}`)
+    await load(true)
+  } finally {
+    ignoreBusy.value = false
   }
 }
 function changeSourceFilter() {
@@ -366,12 +448,14 @@ function changeSourceFilter() {
   void load()
 }
 onMounted(() => {
+  window.addEventListener('resize', resizeTable)
   void load()
   timer = setInterval(() => {
     void load(true)
   }, 5000)
 })
 onUnmounted(() => {
+  window.removeEventListener('resize', resizeTable)
   if (timer) clearInterval(timer)
   form.secret = ''
 })
@@ -380,8 +464,10 @@ onUnmounted(() => {
   <div class="page-heading">
     <div>
       <div class="eyebrow">THE INBOX · SOURCE ARCHIVE</div>
-      <h1>先收齐资料，再核对账单。</h1>
-      <p>多邮箱各自同步，原信留在服务器。准备资料后可明确交给模型识别，再到「模型与核对」定稿。</p>
+      <h1>邮件中心</h1>
+      <p>
+        先筛选信用卡账单，再转换文本。启用自动识别后，仅疑似账单交给模型；其他邮件自动忽略，也可手动处理。
+      </p>
     </div>
     <el-button :loading="loading" @click="load(false)">刷新状态</el-button>
   </div>
@@ -418,15 +504,15 @@ onUnmounted(() => {
     :closable="false"
     title="收信、连接测试和资料转换均由独立 worker 执行；只启动网页和 API 不会处理任务。"
   />
-  <section class="panel padded section-gap" v-loading="loading">
+  <section class="panel padded section-gap mail-center" v-loading="loading">
     <el-tabs v-model="tab">
       <el-tab-pane label="邮件列表" name="sources">
         <div class="import-upload">
           <div>
             <h3>导入原邮件或文本型 PDF</h3>
             <p>
-              .eml 上限 20 MiB，PDF 上限 10 MiB。加密、扫描或不支持的附件保留待处理，不使用本地 OCR
-              或银行解析规则。
+              .eml 上限 20 MiB，PDF 上限 10
+              MiB。手动上传会转换文本；模型自动识别仍只处理疑似信用卡账单或上传的 PDF。
             </p>
           </div>
           <label class="import-file-label"
@@ -440,7 +526,28 @@ onUnmounted(() => {
           /></label>
         </div>
         <div class="filter-bar import-filters">
-          <el-select v-model="sourceState" aria-label="资料状态筛选" @change="changeSourceFilter"
+          <el-input
+            v-model="sourceKeyword"
+            placeholder="搜索主题或发件人"
+            aria-label="搜索邮件"
+            clearable
+            @keyup.enter="changeSourceFilter"
+            @clear="changeSourceFilter"
+          />
+          <el-select
+            v-model="sourceMailbox"
+            aria-label="接收邮箱筛选"
+            placeholder="全部邮箱"
+            @change="changeSourceFilter"
+          >
+            <el-option label="全部邮箱" value="" />
+            <el-option v-for="box in boxes" :key="box.id" :label="box.address" :value="box.id" />
+          </el-select>
+          <el-select
+            v-model="sourceState"
+            aria-label="资料状态筛选"
+            placeholder="全部状态"
+            @change="changeSourceFilter"
             ><el-option label="全部状态" value="" /><el-option
               v-for="value in [
                 'pending',
@@ -454,69 +561,124 @@ onUnmounted(() => {
               :key="value"
               :label="label(value)"
               :value="value" /></el-select
-          ><span class="muted">{{ sourceTotal }} 份来源 · 模型识别默认人工触发</span>
+          ><el-button @click="changeSourceFilter">搜索</el-button>
+          <span class="muted">共 {{ sourceTotal }} 封邮件 / 资料</span>
+          <el-button
+            v-if="selectedSources.some((row) => !ignored(row))"
+            text
+            type="danger"
+            :loading="ignoreBusy"
+            @click="changeIgnored(selectedSources.filter((row) => !ignored(row)))"
+            >忽略所选</el-button
+          >
+          <el-button
+            v-if="selectedSources.some(ignored)"
+            text
+            :loading="ignoreBusy"
+            @click="changeIgnored(selectedSources.filter(ignored), true)"
+            >恢复所选</el-button
+          >
         </div>
-        <el-table :data="sources" empty-text="尚无邮件或导入资料"
-          ><el-table-column label="来源" min-width="190"
-            ><template #default="{ row }"
-              ><strong>{{ row.subject || row.filename || '无主题邮件' }}</strong>
-              <p class="muted">
-                {{ boxName(row.mailbox_id) }} · {{ Math.ceil(row.size_bytes / 1024) }} KiB
-              </p></template
-            ></el-table-column
-          ><el-table-column label="状态" width="170"
-            ><template #default="{ row }"
-              ><el-tag :type="color(sourceStatus(row))">{{ label(sourceStatus(row)) }}</el-tag>
-              <small v-if="row.saved_statement_count > 0" class="import-code">
-                已保存 {{ row.saved_statement_count }} 份账单
-              </small>
+        <el-table
+          class="mail-table"
+          :data="sources"
+          row-key="id"
+          empty-text="尚无邮件或导入资料"
+          @selection-change="selectedSources = $event"
+        >
+          <el-table-column type="selection" width="46" :reserve-selection="false" />
+          <el-table-column label="邮件主题" min-width="320">
+            <template #default="{ row }">
+              <div class="mail-subject">
+                <strong :title="row.subject || row.filename">{{
+                  row.subject || row.filename || '无主题邮件'
+                }}</strong>
+                <el-tag
+                  v-if="row.suspected_bill"
+                  class="suspected-bill"
+                  type="warning"
+                  effect="plain"
+                  size="small"
+                  >疑似账单</el-tag
+                >
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="发件人" min-width="190" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.sender || '—' }}</template>
+          </el-table-column>
+          <el-table-column label="接收邮箱" min-width="170" show-overflow-tooltip>
+            <template #default="{ row }">{{ boxAddress(row.mailbox_id) }}</template>
+          </el-table-column>
+          <el-table-column label="收件时间" width="180">
+            <template #default="{ row }">{{ mailTime(row.created_at) }}</template>
+          </el-table-column>
+          <el-table-column label="解析状态" width="160" :fixed="wideTable ? 'right' : false">
+            <template #default="{ row }">
+              <el-tag :type="color(sourceStatus(row))" effect="plain" size="small">{{
+                label(sourceStatus(row))
+              }}</el-tag>
+              <small v-if="row.saved_statement_count > 0" class="import-code"
+                >已保存 {{ row.saved_statement_count }} 份账单</small
+              >
               <small
                 v-if="row.saved_statement_count > 0 && row.pending_candidate_count > 0"
                 class="import-code"
+                >另有 {{ row.pending_candidate_count }} 份候选待核对</small
               >
-                另有 {{ row.pending_candidate_count }} 份候选待核对
-              </small>
               <small
-                v-if="row.llm_parsed && !['ready', 'partial'].includes(row.state)"
+                v-if="row.llm_parsed && !['ready', 'partial', 'skipped'].includes(row.state)"
                 class="import-code"
+                >{{ label(row.state) }}</small
               >
-                {{ label(row.state) }}
-              </small>
-              <small class="import-code">{{ row.reason }}</small></template
-            ></el-table-column
-          ><el-table-column label="导入时间" min-width="160"
-            ><template #default="{ row }">{{ dateTime(row.created_at) }}</template></el-table-column
-          ><el-table-column label="操作" min-width="245"
-            ><template #default="{ row }"
-              ><el-button text :disabled="!row.input_id" @click="showPreview(row)"
-                >安全预览</el-button
-              ><el-button
-                v-if="row.input_id && ['ready', 'partial'].includes(row.state)"
-                text
-                @click="identify(row)"
-                >模型识别</el-button
-              ><el-button
-                v-if="row.input_id && ['ready', 'partial'].includes(row.state)"
-                text
-                @click="identify(row, true)"
-                >重新识别</el-button
-              ><el-button
-                v-if="row.raw_available"
-                text
-                :disabled="row.state === 'pending' || !!reprocessBusy"
-                :loading="reprocessBusy === row.id"
-                @click="reprocess(row, 'reconvert')"
-                >重新转换</el-button
-              ><el-button
-                v-if="row.mailbox_id"
-                text
-                :disabled="row.state === 'pending' || !!reprocessBusy"
-                @click="reprocess(row, 'refetch')"
-                >重新收取并转换</el-button
-              ></template
-            ></el-table-column
-          ></el-table
-        >
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="260" :fixed="wideTable ? 'right' : false">
+            <template #default="{ row }">
+              <div class="mail-row-actions">
+                <el-button text type="primary" @click="showPreview(row)">查看详情</el-button>
+                <el-button
+                  v-if="!ignored(row)"
+                  text
+                  type="danger"
+                  :disabled="row.state === 'pending' || ignoreBusy"
+                  @click="changeIgnored([row])"
+                  >忽略</el-button
+                >
+                <el-button v-else text :disabled="ignoreBusy" @click="changeIgnored([row], true)"
+                  >恢复</el-button
+                >
+                <el-button
+                  v-if="row.raw_available"
+                  text
+                  type="primary"
+                  :disabled="row.state === 'pending' || !!reprocessBusy"
+                  :loading="reprocessBusy === row.id"
+                  @click="reprocess(row, 'reconvert')"
+                  >{{ row.input_id ? '重新转换' : '转为文本' }}</el-button
+                >
+                <el-button
+                  v-else-if="row.mailbox_id"
+                  text
+                  type="primary"
+                  :disabled="row.state === 'pending' || !!reprocessBusy"
+                  @click="reprocess(row, 'refetch')"
+                  >收取并转文本</el-button
+                >
+                <el-button v-if="canIdentify(row)" text type="primary" @click="identify(row)"
+                  >模型识别</el-button
+                >
+                <el-button
+                  v-if="row.input_id && ['ready', 'partial'].includes(row.state)"
+                  text
+                  type="primary"
+                  @click="identify(row, true)"
+                  >重新识别</el-button
+                >
+              </div>
+            </template>
+          </el-table-column>
+        </el-table>
         <el-pagination
           class="pagination"
           v-model:current-page="sourcePage"
@@ -675,11 +837,24 @@ onUnmounted(() => {
         :closable="false"
         title="仅显示转换后的纯文本，不执行邮件 HTML、不加载外部资源。账单候选请在「模型与核对」查看。"
       />
-      <p class="section-gap">{{ preview.source.subject || preview.source.filename }}</p>
-      <p v-if="preview.input.warnings.length" class="import-error">
-        注意：{{ preview.input.warnings.map(warningText).join(' / ') }}
+      <h3 class="section-gap">{{ preview.source.subject || preview.source.filename }}</h3>
+      <div class="mail-detail-meta">
+        <p>发件人：{{ preview.source.sender || '—' }}</p>
+        <p>接收邮箱：{{ boxAddress(preview.source.mailbox_id) }}</p>
+        <p>收件时间：{{ mailTime(preview.source.created_at) }}</p>
+        <p>解析状态：{{ label(sourceStatus(preview.source)) }}</p>
+        <p v-if="preview.source.reason">处理说明：{{ warningText(preview.source.reason) }}</p>
+      </div>
+      <p v-if="preview.input?.warnings.length" class="import-error">
+        注意：{{ preview.input?.warnings.map(warningText).join(' / ') }}
       </p>
-      <div class="section-gap">
+      <div class="section-gap mail-detail-actions">
+        <el-button
+          v-if="canIdentify(preview.source)"
+          type="primary"
+          @click="identify(preview.source)"
+          >模型识别</el-button
+        >
         <el-button
           v-if="preview.source.raw_available"
           :disabled="preview.source.state === 'pending' || !!reprocessBusy"
@@ -694,11 +869,11 @@ onUnmounted(() => {
           >重新收取并转换</el-button
         >
       </div>
-      <section v-for="(part, index) in preview.input.parts" :key="index" class="section-gap">
+      <section v-for="(part, index) in preview.input?.parts" :key="index" class="section-gap">
         <h3>{{ part.name }} · {{ part.media_type }}</h3>
         <pre class="source-text">{{ part.text }}</pre>
       </section>
-      <p v-if="!preview.input.parts.length">
+      <p v-if="!preview.input?.parts.length">
         没有可转换文本。可先尝试重新转换或重新收取邮件；若仍无文本，请上传已解密的文本型 PDF
         或手工录入账单。
       </p></template

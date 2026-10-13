@@ -22,6 +22,7 @@ from .llm_services import (
     publish_candidate,
     suggested_fields,
 )
+from .mail_classification import automatic_source_allowed
 from .mail_crypto import decrypt_secret
 from .mail_jobs import ACTIVE, finish_row, owned, transaction
 from .mail_storage import read_blob
@@ -63,7 +64,9 @@ def enqueue_model(db, kind, config, *, source=None, run=None):
 
 def queue_source(db, source, *, force=False):
     config = require_config(db)
-    if not source.input_id or source.state not in {"ready", "partial"}:
+    prepared = db.get(PreparedInput, source.input_id) if source.input_id else None
+    manual_ignored = source.state == "skipped" and prepared and prepared.state in {"ready", "partial"}
+    if not source.input_id or (source.state not in {"ready", "partial"} and not manual_ignored):
         raise DomainError("INPUT_NOT_READY", "仅已准备或部分准备的资料可交给模型", 409)
     # An active run is shared even if a second click requests a forced run.
     current = db.scalar(
@@ -115,6 +118,8 @@ def schedule_models(sessions):
             return
         queued = 0
         for source in sources:
+            if not automatic_source_allowed(source):
+                continue
             key = f"{source.input_id}:{config.version}:{PROMPT_VERSION}:{SCHEMA_VERSION}"
             if db.scalar(select(ModelRun.id).where(ModelRun.cache_key == key)):
                 continue

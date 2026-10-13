@@ -20,7 +20,7 @@ const navigation = [
   { path: '/', label: '账单概览', icon: DataBoard },
   { path: '/accounts', label: '账户与卡片', icon: CreditCard },
   { path: '/statements', label: '账单管理', icon: Document },
-  { path: '/imports', label: '邮箱与导入', icon: Message },
+  { path: '/imports', label: '邮件中心', icon: Message },
   { path: '/models', label: '模型与核对', icon: MagicStick },
   { path: '/tasks', label: '任务队列', icon: List },
   { path: '/settings', label: '安全与设置', icon: Setting },

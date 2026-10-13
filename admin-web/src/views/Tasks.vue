@@ -182,7 +182,7 @@ onUnmounted(() => {
     <div class="section-heading">
       <div>
         <h2>任务队列</h2>
-        <p>跨模块统一管理，不局限于邮箱与导入。</p>
+        <p>跨模块统一管理，不局限于邮件中心。</p>
       </div>
     </div>
     <div class="filter-bar import-filters">
