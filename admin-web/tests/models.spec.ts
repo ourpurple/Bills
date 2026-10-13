@@ -16,7 +16,7 @@ test('P3: configure → model candidate → review → publish → details → r
   await page.getByRole('button', { name: '进入工作台' }).click()
   await expect(page.getByRole('heading', { name: '让账单，井然有序。' })).toBeVisible()
   const session = await (await page.request.get('/api/v1/auth/me')).json()
-  const headers = { 'X-CSRF-Token': session.csrf_token, Origin: 'http://localhost:5173' }
+  const headers = { 'X-CSRF-Token': session.csrf_token, Origin: new URL(page.url()).origin }
   const create = async (path: string, data: unknown) => {
     const response = await page.request.post('/api/v1/admin/' + path, { headers, data })
     expect(response.status()).toBe(201)
@@ -135,8 +135,28 @@ test('P3: configure → model candidate → review → publish → details → r
     'aria-selected',
     'true',
   )
-  await sourceRow.getByRole('button', { name: '重新识别', exact: true }).click()
-  await page.locator('.el-message-box').getByRole('button', { name: '确定' }).click()
+  await expect(sourceRow).toHaveCount(0)
+  await page
+    .locator('.el-select')
+    .filter({ has: page.getByRole('combobox', { name: '邮件显示范围' }) })
+    .click()
+  await page.getByRole('option', { name: '全部邮件', exact: true }).click()
+  await expect(sourceRow).toContainText('已识别并保存')
+  await expect(sourceRow.getByRole('button', { name: '模型识别', exact: true })).toHaveCount(0)
+  await expect(sourceRow.getByRole('button', { name: '重新识别', exact: true })).toHaveCount(0)
+  // A revised bill must come from a new, unsaved source rather than reparse saved mail.
+  const revised = Buffer.from(
+    raw
+      .toString()
+      .replace('Synthetic P3 model review', 'Synthetic P3 revised review')
+      .replace('1000.00 900.00', '1000.00 900.00 新版补充'),
+  )
+  await page
+    .getByLabel('选择资料文件')
+    .setInputFiles({ name: 'p3-revised.eml', mimeType: 'message/rfc822', buffer: revised })
+  const revisedRow = page.getByRole('row').filter({ hasText: 'Synthetic P3 revised review' })
+  await expect(revisedRow).toContainText('文本已准备', { timeout: 20000 })
+  await revisedRow.getByRole('button', { name: '模型识别', exact: true }).click()
   await expect(page).toHaveURL(/models\?run=/)
   await expect(candidateRow).toContainText('待核对', { timeout: 20000 })
   await candidateRow.getByRole('button', { name: '核对', exact: true }).click()

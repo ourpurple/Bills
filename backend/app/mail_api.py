@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import timedelta
+from typing import Literal
 from urllib.parse import unquote
 
 from fastapi import APIRouter, Depends, Header, Query, Request
@@ -11,6 +12,7 @@ from sqlalchemy import case, func, or_, select
 from .core import DomainError, utc_naive
 from .mail_classification import suspected_credit_card_bill
 from .mail_crypto import encrypt_secret
+from .mail_eligibility import saved_statement_exists
 from .mail_input import metadata
 from .mail_jobs import ACTIVE, enqueue, queue_reprocess, queue_retry
 from .mail_schemas import MailboxConfig, ScanRange, SourceReprocess
@@ -164,6 +166,7 @@ def source_json(row, progress=None):
         pending_candidate_count=0,
     )
     data.update((progress or {}).get(row.id, {}))
+    data["can_parse"] = data["can_parse"] and not data["ignored"] and data["saved_statement_count"] == 0
     return data
 
 
@@ -321,9 +324,12 @@ def sources(
     page_size: int = Query(20, ge=1, le=100),
     state: str | None = None,
     mailbox_id: str | None = None,
+    view: Literal["pending", "all"] = "all",
     db=Depends(get_db, scope="function"),
 ):
     query = select(MailSource)
+    if view == "pending":
+        query = query.where(MailSource.state != "skipped", ~saved_statement_exists())
     if state:
         query = query.where(MailSource.state == state)
     if mailbox_id:
@@ -341,6 +347,7 @@ def sources(
     progress = source_model_progress(db, [item["id"] for item in result["items"]])
     for item in result["items"]:
         item.update(progress.get(item["id"], {}))
+        item["can_parse"] = item["can_parse"] and not item["ignored"] and item["saved_statement_count"] == 0
     return result
 
 

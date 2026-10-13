@@ -97,7 +97,8 @@ const sourceMailbox = ref(''),
   sourceKeyword = ref(''),
   selectedSources = ref<Source[]>([]),
   ignoreBusy = ref(false)
-const sourceState = ref(''),
+const sourceView = ref('pending'),
+  sourceState = ref(''),
   sourcePage = ref(1),
   sourceTotal = ref(0)
 const dialog = ref(false),
@@ -168,7 +169,10 @@ function color(state: string): 'success' | 'warning' | 'danger' | 'info' {
 }
 function canIdentify(row: Source) {
   return (
-    !!row.input_id && (['ready', 'partial'].includes(row.state) || (ignored(row) && row.can_parse))
+    !ignored(row) &&
+    !(row.saved_statement_count > 0) &&
+    !!row.input_id &&
+    ['ready', 'partial'].includes(row.state)
   )
 }
 function sourceStatus(row: Source) {
@@ -186,7 +190,7 @@ async function load(silent = false) {
       allItems<Mailbox>('/admin/mailboxes'),
       api<Health>('/admin/import-status'),
       api<Page<Source>>(
-        `/admin/sources?page=${sourcePage.value}&state=${sourceState.value}&mailbox_id=${sourceMailbox.value}&keyword=${encodeURIComponent(sourceKeyword.value)}`,
+        `/admin/sources?page=${sourcePage.value}&view=${sourceView.value}&state=${sourceState.value}&mailbox_id=${sourceMailbox.value}&keyword=${encodeURIComponent(sourceKeyword.value)}`,
       ),
     ])
     boxes.value = b
@@ -335,6 +339,16 @@ async function upload(event: Event) {
   }
 }
 async function identify(row: Source, force = false) {
+  if (!canIdentify(row)) {
+    ElMessage.warning(
+      ignored(row)
+        ? '该邮件已被忽略，请先恢复后再识别'
+        : row.saved_statement_count > 0
+          ? '该邮件已识别并保存为账单，不可重复识别'
+          : '资料尚未准备好，请先完成转换',
+    )
+    return
+  }
   if (force) {
     try {
       await ElMessageBox.confirm(
@@ -355,8 +369,9 @@ async function identify(row: Source, force = false) {
 }
 function warningText(code: string) {
   const messages: Record<string, string> = {
-    NOT_CREDIT_CARD_BILL: '未通过信用卡账单初筛，已自动忽略；如有误判，可手动转换和识别。',
-    MANUALLY_IGNORED: '已手动忽略，不再自动处理。原邮件和已有账单均保留。',
+    NOT_CREDIT_CARD_BILL:
+      '未通过信用卡账单初筛，已自动忽略；如有误判，请先恢复邮件后再转换和识别。',
+    MANUALLY_IGNORED: '已手动忽略，不再交给模型识别；请先恢复后再处理。原邮件和已有账单均保留。',
     FILTERED: '未匹配邮箱的发件人或主题筛选条件。',
     OUTSIDE_RANGE: '邮件日期不在本次同步范围内。',
     NO_TEXT: '未提取到可用文字',
@@ -543,6 +558,10 @@ onUnmounted(() => {
             <el-option label="全部邮箱" value="" />
             <el-option v-for="box in boxes" :key="box.id" :label="box.address" :value="box.id" />
           </el-select>
+          <el-select v-model="sourceView" aria-label="邮件显示范围" @change="changeSourceFilter">
+            <el-option label="未保存且未忽略" value="pending" />
+            <el-option label="全部邮件" value="all" />
+          </el-select>
           <el-select
             v-model="sourceState"
             aria-label="资料状态筛选"
@@ -668,11 +687,7 @@ onUnmounted(() => {
                 <el-button v-if="canIdentify(row)" text type="primary" @click="identify(row)"
                   >模型识别</el-button
                 >
-                <el-button
-                  v-if="row.input_id && ['ready', 'partial'].includes(row.state)"
-                  text
-                  type="primary"
-                  @click="identify(row, true)"
+                <el-button v-if="canIdentify(row)" text type="primary" @click="identify(row, true)"
                   >重新识别</el-button
                 >
               </div>

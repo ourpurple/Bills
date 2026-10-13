@@ -306,6 +306,8 @@ class Worker:
                 "TASK_LEASE_LOST",
                 "LLM_CONFIG_CHANGED",
                 "LLM_NOT_CONFIGURED",
+                "SOURCE_IGNORED",
+                "SOURCE_ALREADY_SAVED",
             }
             state = (
                 "cancelled"

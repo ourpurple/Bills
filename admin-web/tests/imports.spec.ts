@@ -116,9 +116,9 @@ test('P2: inactive mailbox, upload, worker conversion, safe preview and narrow l
   )
   await page.screenshot({ path: test.info().outputPath('imports.png'), fullPage: true })
   await page.setViewportSize({ width: 390, height: 844 })
-  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(
-    false,
-  )
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth))
+    .toBe(false)
 })
 
 test('source recovery: refetch confirmation queues the selected email without model calls', async ({
@@ -235,7 +235,12 @@ test('source progress distinguishes prepared, pending review and saved bills', a
     },
   ]
   await page.route('**/api/v1/admin/sources?*', async (route) => {
-    await route.fulfill({ json: { items: sources, total: sources.length, page: 1, page_size: 20 } })
+    const view = new URL(route.request().url()).searchParams.get('view')
+    const items =
+      view === 'pending'
+        ? sources.filter((source) => source.state !== 'skipped' && !source.saved_statement_count)
+        : sources
+    await route.fulfill({ json: { items, total: items.length, page: 1, page_size: 20 } })
   })
   await page.goto('/login')
   await page.getByLabel('用户名', { exact: true }).fill('e2e-admin')
@@ -249,9 +254,29 @@ test('source progress distinguishes prepared, pending review and saved bills', a
   const row = (subject: string) => page.getByRole('row').filter({ hasText: subject })
   await expect(row('仅完成资料转换')).toContainText('文本已准备')
   await expect(row('模型识别等待核对')).toContainText('已识别 · 待核对')
+  await expect(
+    page
+      .locator('.el-select')
+      .filter({ has: page.getByRole('combobox', { name: '邮件显示范围' }) }),
+  ).toContainText('未保存且未忽略')
+  await expect(row('模型账单已保存')).toHaveCount(0)
+  await expect(row('一封邮件多份账单')).toHaveCount(0)
+  await expect(row('已保存后重新转换')).toHaveCount(0)
+  await expect(row('识别候选未采用')).toBeVisible()
+  await page
+    .locator('.el-select')
+    .filter({ has: page.getByRole('combobox', { name: '邮件显示范围' }) })
+    .click()
+  await page.getByRole('option', { name: '全部邮件', exact: true }).click()
   await expect(row('模型账单已保存')).toContainText('已识别并保存')
   await expect(row('模型账单已保存')).toContainText('已保存 1 份账单')
   await expect(row('模型账单已保存')).not.toContainText('文本已准备')
+  await expect(
+    row('模型账单已保存').getByRole('button', { name: '模型识别', exact: true }),
+  ).toHaveCount(0)
+  await expect(
+    row('一封邮件多份账单').getByRole('button', { name: '模型识别', exact: true }),
+  ).toHaveCount(0)
   await expect(row('一封邮件多份账单')).toContainText('已识别 · 部分保存')
   await expect(row('一封邮件多份账单')).toContainText('1 份候选待核对')
   await expect(row('识别候选未采用')).toContainText('已识别 · 未保存')
@@ -259,9 +284,9 @@ test('source progress distinguishes prepared, pending review and saved bills', a
   await expect(row('已保存后重新转换')).toContainText('等待转换')
   await page.screenshot({ path: test.info().outputPath('source-progress.png'), fullPage: true })
   await page.setViewportSize({ width: 390, height: 844 })
-  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(
-    false,
-  )
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth))
+    .toBe(false)
 })
 
 test('mail center: suspected tags, ignored details, manual actions and batch controls', async ({
@@ -344,7 +369,17 @@ test('mail center: suspected tags, ignored details, manual actions and batch con
     })
   })
   await page.route('**/api/v1/admin/sources?*', async (route) => {
-    await route.fulfill({ json: { items: sources, total: sources.length, page: 1, page_size: 20 } })
+    const view = new URL(route.request().url()).searchParams.get('view')
+    const items =
+      view === 'pending'
+        ? sources.filter((source) => source.state !== 'skipped' && !source.saved_statement_count)
+        : sources
+    await route.fulfill({ json: { items, total: items.length, page: 1, page_size: 20 } })
+  })
+  await page.route('**/api/v1/admin/sources/bill/preview', async (route) => {
+    await route.fulfill({
+      json: { source: sources[0], input: { state: 'ready', warnings: [], parts: [] } },
+    })
   })
   await page.route('**/api/v1/admin/sources/*/ignore', async (route) => {
     const id = route.request().url().split('/').at(-2)!
@@ -374,6 +409,12 @@ test('mail center: suspected tags, ignored details, manual actions and batch con
   const reminder = row(sources[1].subject)
   await expect(bill).toContainText('疑似账单')
   await expect(bill).toContainText('owner@example.test')
+  await expect(reminder).toHaveCount(0)
+  await page
+    .locator('.el-select')
+    .filter({ has: page.getByRole('combobox', { name: '邮件显示范围' }) })
+    .click()
+  await page.getByRole('option', { name: '全部邮件', exact: true }).click()
   await expect(reminder).toContainText('已忽略')
   await expect(reminder).not.toContainText('疑似账单')
   await expect(bill.getByRole('button', { name: '重新转换', exact: true })).toBeVisible()
@@ -400,7 +441,13 @@ test('mail center: suspected tags, ignored details, manual actions and batch con
     .getByRole('button', { name: '确定', exact: true })
     .click()
   await expect(bill).toContainText('已忽略')
-  await expect(bill.getByRole('button', { name: '模型识别', exact: true })).toBeVisible()
+  await expect(bill.getByRole('button', { name: '模型识别', exact: true })).toHaveCount(0)
+  await expect(bill.getByRole('button', { name: '重新识别', exact: true })).toHaveCount(0)
+  await bill.getByRole('button', { name: '查看详情', exact: true }).click()
+  await expect(drawer.getByRole('button', { name: '模型识别', exact: true })).toHaveCount(0)
+  await expect(drawer.getByRole('button', { name: '强制重新识别', exact: true })).toHaveCount(0)
+  await drawer.press('Escape')
+  await expect(drawer).not.toBeVisible()
   await bill.getByRole('button', { name: '恢复', exact: true }).click()
   await expect(bill).toContainText('文本已准备')
   await reminder.getByRole('button', { name: '恢复', exact: true }).click()
@@ -408,7 +455,7 @@ test('mail center: suspected tags, ignored details, manual actions and batch con
   expect(actions).toEqual(['ignore:bill', 'restore:bill', 'restore:reminder'])
   expect(modelCalls).toEqual([])
   await page.setViewportSize({ width: 390, height: 844 })
-  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(
-    false,
-  )
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth))
+    .toBe(false)
 })

@@ -110,17 +110,19 @@ def test_auto_model_screening_covers_converted_backlog_and_manual_parse(admin):
     assert len(runs) == 1 and runs[0]["source_id"] == ids[0]
     ignored_path = f"/api/v1/admin/sources/{ids[1]}"
     assert admin.post(ignored_path + "/ignore").status_code == 200
-    assert admin.post(ignored_path + "/parse", json={"force": False}).status_code == 202
-    # Manual recognition is allowed without turning automatic handling back on.
+    for force in (False, True):
+        response = admin.post(ignored_path + "/parse", json={"force": force})
+        assert response.status_code == 409
+        assert response.json()["error"]["code"] == "SOURCE_IGNORED"
     assert admin.get(ignored_path + "/preview").json()["source"]["ignored"] is True
-    assert admin.post(ignored_path + "/restore").status_code == 409
+    assert admin.get(ignored_path + "/preview").json()["source"]["can_parse"] is False
+    assert admin.post(ignored_path + "/restore").status_code == 200
+    assert admin.post(ignored_path + "/parse", json={"force": False}).status_code == 202
     w.model_client = FakeModel()
     drain(w)
-    assert admin.get(ignored_path + "/preview").json()["source"]["ignored"] is True
     runs_before = admin.get("/api/v1/admin/model-runs").json()["total"]
     candidates_before = admin.get("/api/v1/admin/candidates").json()["total"]
     assert runs_before == 2 and candidates_before == 2
-    assert admin.post(ignored_path + "/restore").status_code == 200
     assert admin.post(ignored_path + "/ignore").status_code == 200
     assert admin.get("/api/v1/admin/model-runs").json()["total"] == runs_before
     assert admin.get("/api/v1/admin/candidates").json()["total"] == candidates_before

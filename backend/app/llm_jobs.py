@@ -24,6 +24,7 @@ from .llm_services import (
 )
 from .mail_classification import automatic_source_allowed
 from .mail_crypto import decrypt_secret
+from .mail_eligibility import require_parse_eligible, saved_statement_exists
 from .mail_jobs import ACTIVE, finish_row, owned, transaction
 from .mail_storage import read_blob
 from .models import Bank, MailSource, ModelCall, ModelCandidate, ModelConfig, ModelRun, PreparedInput, Task
@@ -63,10 +64,9 @@ def enqueue_model(db, kind, config, *, source=None, run=None):
 
 
 def queue_source(db, source, *, force=False):
+    require_parse_eligible(db, source)
     config = require_config(db)
-    prepared = db.get(PreparedInput, source.input_id) if source.input_id else None
-    manual_ignored = source.state == "skipped" and prepared and prepared.state in {"ready", "partial"}
-    if not source.input_id or (source.state not in {"ready", "partial"} and not manual_ignored):
+    if not source.input_id or source.state not in {"ready", "partial"}:
         raise DomainError("INPUT_NOT_READY", "仅已准备或部分准备的资料可交给模型", 409)
     # An active run is shared even if a second click requests a forced run.
     current = db.scalar(
@@ -111,7 +111,11 @@ def schedule_models(sessions):
         # Opt-in covers prepared backlog. A failed/cached run is not automatically resubmitted.
         sources = db.scalars(
             select(MailSource)
-            .where(MailSource.state.in_(["ready", "partial"]), MailSource.input_id.is_not(None))
+            .where(
+                MailSource.state.in_(["ready", "partial"]),
+                MailSource.input_id.is_not(None),
+                ~saved_statement_exists(),
+            )
             .order_by(MailSource.created_at)
         ).all()
         if db.scalar(select(func.count()).select_from(Task).where(Task.state.in_(ACTIVE))) >= 980:
@@ -175,12 +179,13 @@ def execute(worker, task):
         run_id = json.loads(row.payload).get("run_id")
         run = db.get(ModelRun, run_id) if run_id else None
         input_id = run.input_id if run else None
-        source_media = db.get(MailSource, run.source_id).media_type if run else None
+        source = db.get(MailSource, run.source_id) if run else None
+        if run:
+            require_parse_eligible(db, source)
+        source_media = source.media_type if source else None
         prepared_row = db.get(PreparedInput, input_id) if run else None
         converter = prepared_row.converter_version if prepared_row else None
-        input_ready = bool(
-            run and prepared_row.state == "ready" and db.get(MailSource, run.source_id).state == "ready"
-        )
+        input_ready = bool(run and prepared_row and prepared_row.state == "ready" and source.state == "ready")
         banks = [{"code": bank.code, "name": bank.name} for bank in db.scalars(select(Bank))]
     config["api_key"] = decrypt_secret(worker.settings, config.pop("key_ciphertext"))
     privacy = strict_json(decrypt_secret(worker.settings, config.pop("privacy_ciphertext")))
@@ -223,6 +228,11 @@ def execute(worker, task):
     with transaction(worker.sessions) as db:
         row = owned(db, task.id, task.lease_token)
         current = guard_config(db, row)
+        # Recheck persisted eligibility immediately before reserving an outbound call.
+        # Covers old queued tasks, retries, and changes made while preparing the prompt.
+        if run_id:
+            current_run = db.get(ModelRun, run_id)
+            require_parse_eligible(db, db.get(MailSource, current_run.source_id))
         # Count reservations across versions, including unknown outcomes after crashes/timeouts.
         if (
             db.scalar(select(func.count()).select_from(ModelCall).where(ModelCall.created_at >= day_start()))

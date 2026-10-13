@@ -310,7 +310,8 @@ def test_revision_keeps_repayments_and_duplicate_guard(admin):
     assert new["id"] == old["id"] and new["amount"] == "900.00" and new["paid"] == "100.00"
     assert len(new["repayments"]) == 1 and len(new["revisions"]) == 2
     assert new["remaining"] == "800.00"
-    second = candidate(admin, parse(admin, source, FakeModel(result(bill(amount="900.00"))), force=True))
+    second_source = prepared(admin, TEXT + " another duplicate email")
+    second = candidate(admin, parse(admin, second_source, FakeModel(result(bill(amount="900.00")))))
     r = publish(
         admin,
         second,
@@ -441,14 +442,17 @@ def test_auto_publish_opt_in_and_no_auto_revision(admin):
     profile = dict(bank_code="cmb", media_type="message/rfc822", verified=True)
     config(admin, auto_parse=True, auto_publish_profiles=[profile])
     account(admin)
-    source = prepared(admin)
+    prepared(admin)
     fake = FakeModel()
     schedule_models(admin.app.state.sessions)
     drain(Worker(admin.app.state.settings, admin.app.state.sessions, model_client=fake))
     row = admin.get("/api/v1/admin/candidates").json()["items"][0]
     assert row["state"] == "published"
     statement = detail(admin, row["statement_id"])
-    next_row = candidate(admin, parse(admin, source, FakeModel(result(bill(amount="700.00"))), force=True))
+    next_source = prepared(admin, TEXT + " another statement email")
+    next_row = candidate(
+        admin, parse(admin, next_source, FakeModel(result(bill(amount="700.00"))), force=True)
+    )
     assert next_row["state"] == "pending"
     assert detail(admin, statement["id"])["amount"] == "1000.00"
 
@@ -819,7 +823,8 @@ def test_detail_history_and_old_statement_version_guard(admin):
         ),
     )
     old = publish(admin, row).json()["statement"]
-    second = candidate(admin, parse(admin, source, FakeModel(result(bill(amount="800.00"))), force=True))
+    second_source = prepared(admin, TEXT + " updated statement email")
+    second = candidate(admin, parse(admin, second_source, FakeModel(result(bill(amount="800.00")))))
     wrong = publish(admin, second, action="revise", expected_statement_version=99, acknowledge_warnings=True)
     assert wrong.status_code == 409
     changed = publish(admin, second, action="revise", expected_statement_version=1, acknowledge_warnings=True)
@@ -1109,15 +1114,18 @@ def test_source_progress_tracks_recognition_partial_save_and_void(admin):
     assert voided["llm_parsed"] is True and voided["saved_statement_count"] == 0
 
 
-def test_source_progress_survives_force_duplicate_upload_and_reconversion(admin):
+def test_source_progress_survives_duplicate_upload_and_reconversion(admin):
     config(admin)
     account(admin)
     source = prepared(admin)
     first = candidate(admin, parse(admin, source, FakeModel()))
+    second = candidate(admin, parse(admin, source, FakeModel(), force=True))
     response = publish(admin, first)
     assert response.status_code == 200, response.text
     statement = response.json()["statement"]
-    second = candidate(admin, parse(admin, source, FakeModel(), force=True))
+    blocked = admin.post(f"/api/v1/admin/sources/{source['id']}/parse", json=dict(force=True))
+    assert blocked.status_code == 409
+    assert blocked.json()["error"]["code"] == "SOURCE_ALREADY_SAVED"
     progress = source_progress(admin, source)
     assert progress["saved_statement_count"] == progress["pending_candidate_count"] == 1
     response = publish(
@@ -1176,5 +1184,7 @@ def test_source_progress_includes_cached_results_for_equivalent_emails(admin):
     assert cached["id"] != source["id"] and cached["input_id"] == source["input_id"]
     assert cached["llm_parsed"] is True and cached["saved_statement_count"] == 1
     fake = FakeModel()
-    assert parse(admin, cached, fake)["id"] == run["id"]
+    blocked = admin.post(f"/api/v1/admin/sources/{cached['id']}/parse", json=dict(force=False))
+    assert blocked.status_code == 409
+    assert blocked.json()["error"]["code"] == "SOURCE_ALREADY_SAVED"
     assert fake.calls == []
