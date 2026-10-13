@@ -152,46 +152,63 @@ onMounted(load)
           <el-button type="primary" :icon="Plus" @click="open('account')">新增账户</el-button>
         </div>
         <el-empty v-if="!accounts.length" description="先添加持卡人，再选择银行创建还款账户。" />
-        <div class="account-grid">
-          <article
-            v-for="a in accounts"
-            :key="a.id"
-            class="account-card"
-            :class="{ inactive: !a.effective_active }"
-          >
-            <div class="account-card-head">
-              <div class="bank-badge" :class="a.bank_code">{{ a.bank_name.slice(0, 1) }}</div>
-              <div>
-                <h3>{{ a.name }}</h3>
-                <span>{{ a.bank_name }} · {{ a.cardholder_name }}</span>
+        <div v-if="accounts.length" class="account-list">
+          <div class="account-list-header" aria-hidden="true">
+            <span>账户 / 银行 / 持卡人</span>
+            <span>还款模式</span>
+            <span>卡片 · 尾号</span>
+            <span>预计出账日</span>
+            <span class="account-actions-label">操作</span>
+          </div>
+          <div class="account-rows">
+            <article
+              v-for="a in accounts"
+              :key="a.id"
+              class="account-card"
+              :class="{ inactive: !a.effective_active }"
+            >
+              <div class="account-card-head">
+                <div class="bank-badge" :class="a.bank_code">{{ a.bank_name.slice(0, 1) }}</div>
+                <div class="account-identity">
+                  <h3>{{ a.name }}</h3>
+                  <span>{{ a.bank_name }} · {{ a.cardholder_name }}</span>
+                </div>
               </div>
-              <el-tag size="small" :type="a.active ? 'success' : 'info'">{{
-                a.effective_active ? modeText(a.mode) : '已停用（含上级）'
-              }}</el-tag>
-            </div>
-            <div class="card-chips">
-              <el-button
-                v-for="c in a.cards"
-                :key="c.id"
-                plain
-                size="small"
-                :class="{ inactive: !c.active }"
-                @click="open('card', c)"
-                >{{ c.name }} · {{ c.last_four }}{{ c.active ? '' : '（停用）' }}</el-button
-              ><span v-if="!a.cards.length" class="muted">暂未添加卡片</span>
-            </div>
-            <div class="account-card-footer">
-              <span>预计每月 {{ a.statement_day || '—' }} 日出账</span>
-              <div>
-                <el-button text @click="open('account', a)">编辑</el-button
+              <div class="account-mode">
+                <el-tag size="small" :type="a.effective_active ? 'success' : 'info'">{{
+                  a.effective_active ? modeText(a.mode) : '已停用（含上级）'
+                }}</el-tag>
+              </div>
+              <div class="card-chips">
+                <el-button
+                  v-for="c in a.cards"
+                  :key="c.id"
+                  plain
+                  size="small"
+                  :class="{ inactive: !c.active }"
+                  :title="`${c.name} · ${c.last_four}${c.active ? '' : '（停用）'}`"
+                  @click="open('card', c)"
+                  >{{ c.name }} · {{ c.last_four }}{{ c.active ? '' : '（停用）' }}</el-button
+                ><span v-if="!a.cards.length" class="muted">暂未添加卡片</span>
+              </div>
+              <div class="account-statement-day">
+                <span v-if="a.statement_day"
+                  >每月 <strong>{{ a.statement_day }}</strong> 日出账</span
+                >
+                <span v-else class="muted">出账日未设置</span>
+              </div>
+              <div class="account-actions">
+                <el-button text size="small" @click="open('account', a)">编辑</el-button
                 ><el-button
                   text
+                  size="small"
                   type="primary"
                   :disabled="!a.effective_active"
                   @click="open('card', undefined, a.id)"
                   >添加卡片</el-button
                 ><el-button
                   text
+                  size="small"
                   type="danger"
                   :loading="deleting === a.id"
                   :disabled="!!deleting && deleting !== a.id"
@@ -199,8 +216,8 @@ onMounted(load)
                   >删除</el-button
                 >
               </div>
-            </div>
-          </article>
+            </article>
+          </div>
         </div></el-tab-pane
       >
       <el-tab-pane label="持卡人" name="holders"
@@ -316,3 +333,175 @@ onMounted(load)
     ></el-dialog
   >
 </template>
+
+<style scoped>
+.account-list {
+  container-type: inline-size;
+  padding: 0 22px 16px;
+}
+.account-list-header,
+.account-card {
+  display: grid;
+  grid-template-columns: minmax(210px, 1.2fr) 112px minmax(140px, 1fr) 126px 188px;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+}
+.account-list-header {
+  color: #7b8779;
+  font-size: 12px;
+  padding-block: 10px;
+}
+.account-rows {
+  overflow: hidden;
+  border: 1px solid #e0e5d8;
+  border-radius: 10px;
+  background: #f7f9f0;
+}
+.account-card {
+  border: 0;
+  border-radius: 0;
+  min-width: 0;
+  background: transparent;
+}
+.account-card + .account-card {
+  border-top: 1px solid #e0e5d8;
+}
+.account-card:hover {
+  background: #f0f4e9;
+}
+.account-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.bank-badge {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  font-size: 20px;
+  border-radius: 8px;
+}
+.account-identity {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.account-identity h3 {
+  font-size: 14px;
+  line-height: 1.5;
+}
+.account-identity > span {
+  color: #737e74;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.account-mode {
+  min-width: 0;
+}
+.card-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+}
+.card-chips .el-button {
+  max-width: 100%;
+  height: 26px;
+  margin: 0;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.card-chips :deep(.el-button > span) {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.card-chips > .muted,
+.account-statement-day {
+  font-size: 12px;
+}
+.account-statement-day {
+  color: #737e74;
+  white-space: nowrap;
+}
+.account-statement-day strong {
+  color: #253932;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.account-actions-label {
+  text-align: right;
+}
+.account-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+.account-actions .el-button {
+  margin: 0;
+  padding-inline: 8px;
+  min-height: 28px;
+}
+@container (max-width: 900px) {
+  .account-list-header {
+    display: none;
+  }
+  .account-card {
+    grid-template-columns: minmax(0, 1fr) auto 188px;
+    gap: 10px 16px;
+  }
+  .account-card-head {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .account-mode {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .card-chips {
+    grid-column: 1 / 3;
+    grid-row: 2;
+  }
+  .account-statement-day {
+    grid-column: 3;
+    grid-row: 2;
+    text-align: right;
+  }
+  .account-actions {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}
+@container (max-width: 600px) {
+  .account-card {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 12px;
+    gap: 10px;
+  }
+  .account-statement-day {
+    grid-column: 1;
+    grid-row: 3;
+    text-align: left;
+  }
+  .account-actions {
+    grid-column: 1 / 3;
+    grid-row: 4;
+  }
+}
+@container (min-width: 380px) and (max-width: 600px) {
+  .account-actions {
+    grid-column: 2;
+    grid-row: 3;
+  }
+}
+@media (max-width: 520px) {
+  .account-list {
+    padding: 0 0 8px;
+  }
+}
+</style>

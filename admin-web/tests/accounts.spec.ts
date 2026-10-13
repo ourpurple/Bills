@@ -147,3 +147,150 @@ test('delete bank card preserves history and account with history cannot be dele
   await expect(tile.getByRole('button', { name: '重新添加卡片 · 4321', exact: true })).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('account-delete-desktop.png'), fullPage: true })
 })
+
+test('compact account rows align on desktop and fit narrow screens', async ({ page }, testInfo) => {
+  const fixtures = [
+    {
+      name: '臻享白',
+      bank_name: '广发银行',
+      statement_day: 7,
+      cards: [{ name: '广发臻享白', last_four: '9759' }],
+    },
+    {
+      name: 'DIY',
+      bank_name: '广发银行',
+      statement_day: 7,
+      cards: [{ name: 'DIY', last_four: '2090' }],
+    },
+    {
+      name: '兴业',
+      bank_name: '兴业银行',
+      statement_day: 27,
+      cards: [{ name: '商旅白', last_four: '5835' }],
+    },
+    {
+      name: '农行',
+      bank_name: '农业银行',
+      statement_day: 28,
+      cards: [{ name: '悠然白', last_four: '8753' }],
+    },
+    {
+      name: '合并还款账户名称很长时也应完整展示而不挤出列表',
+      bank_name: '招商银行',
+      statement_day: 12,
+      cards: [
+        { name: '这是一张名称非常长的银行卡用于验证窄屏展示', last_four: '1234' },
+        { name: '家庭备用卡', last_four: '5678' },
+        { name: '已停用卡', last_four: '9012', active: false },
+      ],
+    },
+    { name: '待配置账户', bank_name: '建设银行', statement_day: null, cards: [] },
+    { name: '已停用账户', bank_name: '交通银行', statement_day: 20, cards: [] },
+  ].map((account, index) => ({
+    ...account,
+    id: `layout-account-${index}`,
+    bank_id: 'layout-bank',
+    bank_code: 'layout-bank',
+    cardholder_id: 'layout-holder',
+    cardholder_name: '示例持卡人',
+    mode: account.cards.length > 1 ? 'merged' : 'independent',
+    active: index !== 6,
+    effective_active: index !== 6,
+    cards: account.cards.map((card, cardIndex) => ({
+      active: true,
+      ...card,
+      id: `layout-card-${index}-${cardIndex}`,
+    })),
+  }))
+  let empty = false
+  await page.route('**/api/v1/auth/me', (route) =>
+    route.fulfill({ json: { username: 'layout-test', csrf_token: 'layout-csrf' } }),
+  )
+  await page.route('**/api/v1/admin/banks?*', (route) =>
+    route.fulfill({ json: { items: [], total: 0 } }),
+  )
+  await page.route('**/api/v1/admin/cardholders?*', (route) =>
+    route.fulfill({ json: { items: [], total: 0 } }),
+  )
+  await page.route('**/api/v1/admin/accounts?*', (route) =>
+    route.fulfill({ json: { items: empty ? [] : fixtures, total: empty ? 0 : fixtures.length } }),
+  )
+  await page.setViewportSize({ width: 1600, height: 1000 })
+  await page.goto('/accounts')
+  const rows = page.locator('.account-card')
+  await expect(rows).toHaveCount(fixtures.length)
+  await expect(page.locator('.account-list-header')).toBeVisible()
+  for (let index = 0; index < 4; index++) {
+    const box = (await rows.nth(index).boundingBox())!
+    expect(box.height).toBeLessThanOrEqual(90)
+    const bounds = await rows
+      .nth(index)
+      .locator(':scope > div')
+      .evaluateAll((elements) =>
+        elements.map((element) => {
+          const rect = element.getBoundingClientRect()
+          return { x: rect.x, right: rect.right, centerY: rect.y + rect.height / 2 }
+        }),
+      )
+    for (let cell = 1; cell < bounds.length; cell++) {
+      expect(bounds[cell].x).toBeGreaterThanOrEqual(bounds[cell - 1].right)
+      expect(Math.abs(bounds[cell].centerY - bounds[0].centerY)).toBeLessThan(2)
+    }
+  }
+  await expect(rows.nth(5)).toContainText('出账日未设置')
+  await expect(rows.nth(5)).toContainText('暂未添加卡片')
+  await expect(rows.nth(6)).toHaveClass(/inactive/)
+  await expect(rows.nth(6).getByRole('button', { name: '添加卡片', exact: true })).toBeDisabled()
+  await page.screenshot({
+    path: testInfo.outputPath('account-list-desktop.png'),
+    fullPage: true,
+    animations: 'disabled',
+  })
+  await rows.first().getByRole('button', { name: '编辑', exact: true }).click()
+  const accountEditor = page.getByRole('dialog', { name: '编辑还款账户', exact: true })
+  await expect(accountEditor.locator('input').first()).toHaveValue('臻享白')
+  await accountEditor.getByRole('button', { name: '取消', exact: true }).click()
+  await rows.first().getByRole('button', { name: '广发臻享白 · 9759', exact: true }).click()
+  const cardEditor = page.getByRole('dialog', { name: '编辑卡片', exact: true })
+  await expect(cardEditor.locator('input').first()).toHaveValue('广发臻享白')
+  await cardEditor.getByRole('button', { name: '取消', exact: true }).click()
+  for (const width of [1440, 1280, 1100, 820, 700, 520, 390, 320]) {
+    await page.setViewportSize({ width, height: 1000 })
+    const measurements = await page.evaluate(() => ({
+      viewport: document.documentElement.clientWidth,
+      pageWidth: document.documentElement.scrollWidth,
+      rows: Array.from(document.querySelectorAll('.account-card')).map((row) => {
+        const rect = row.getBoundingClientRect()
+        return {
+          x: rect.x,
+          right: rect.right,
+          y: rect.y,
+          bottom: rect.bottom,
+          overflow: row.scrollWidth > row.clientWidth,
+        }
+      }),
+    }))
+    expect(measurements.pageWidth, `page overflow at ${width}px`).toBeLessThanOrEqual(width)
+    for (let index = 0; index < measurements.rows.length; index++) {
+      const row = measurements.rows[index]
+      expect(row.overflow, `row ${index} overflow at ${width}px`).toBe(false)
+      expect(row.right).toBeLessThanOrEqual(measurements.viewport)
+      expect(row.x).toBe(measurements.rows[0].x)
+      if (index > 0) expect(row.y).toBeGreaterThanOrEqual(measurements.rows[index - 1].bottom - 1)
+      await expect(rows.nth(index).getByRole('button', { name: '编辑', exact: true })).toBeVisible()
+      await expect(rows.nth(index).getByRole('button', { name: '删除', exact: true })).toBeVisible()
+    }
+    if (width === 390)
+      await page.screenshot({
+        path: testInfo.outputPath('account-list-mobile.png'),
+        fullPage: true,
+      })
+  }
+  empty = true
+  await page.getByRole('button', { name: '刷新', exact: true }).click()
+  await expect(rows).toHaveCount(0)
+  await expect(page.locator('.account-list-header')).toHaveCount(0)
+  await expect(
+    page.getByText('先添加持卡人，再选择银行创建还款账户。', { exact: true }),
+  ).toBeVisible()
+})

@@ -517,18 +517,6 @@ p {
   justify-content: flex-end;
   padding: 20px;
 }
-.account-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
-  padding: 4px 22px 24px;
-}
-.account-card {
-  border: 1px solid #e0e5d8;
-  border-radius: 10px;
-  background: #f7f9f0;
-  padding: 22px;
-}
 .account-card.inactive {
   opacity: 0.65;
 }
@@ -902,9 +890,6 @@ p {
   .bill-amount {
     min-width: 110px;
   }
-  .account-grid {
-    grid-template-columns: 1fr;
-  }
   .settings-grid {
     grid-template-columns: 1fr;
   }
@@ -1046,12 +1031,6 @@ p {
     padding: 16px;
     flex-wrap: wrap;
   }
-  .account-grid {
-    padding: 0 14px 20px;
-  }
-  .account-card {
-    padding: 16px;
-  }
   .account-head {
     align-items: flex-start;
     flex-direction: column;
@@ -1189,49 +1168,6 @@ p {
 }
 .padded .el-tabs__nav-wrap {
   padding-inline: 0;
-}
-.account-card-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.account-card-head .el-tag {
-  margin-left: auto;
-}
-.account-card-head p {
-  font-size: 11px;
-}
-.account-card-head h3 {
-  font-size: 16px;
-}
-.account-card-footer {
-  border-top: 1px solid #e0e5d8;
-  padding-top: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  color: #8b977e;
-  font-size: 11px;
-}
-.card-chips {
-  display: flex;
-  gap: 9px;
-  flex-wrap: wrap;
-  margin: 23px 0;
-}
-.card-chips > div {
-  border: 1px solid #dde2d2;
-  background: #fffefa;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 5px 10px;
-  font-size: 12px;
-}
-.card-chips .el-button {
-  font-size: 10px;
-  padding: 3px;
 }
 .filter-bar > div {
   display: flex;
@@ -1413,17 +1349,8 @@ p {
   .padded {
     padding: 0 14px 16px;
   }
-  .account-card-head {
-    flex-wrap: wrap;
-  }
-  .account-card-head .el-tag {
-    margin-left: 0;
-  }
   .filter-bar .el-select {
     width: min(220px, 65vw);
-  }
-  .account-card-footer {
-    flex-wrap: wrap;
   }
   .detail-summary {
     padding: 18px;
