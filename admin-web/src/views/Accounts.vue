@@ -7,6 +7,9 @@ import { modeText, type Bank, type Holder, type Account, type Card } from '../ty
 const banks = ref<Bank[]>([]),
   holders = ref<Holder[]>([]),
   accounts = ref<Account[]>([])
+const sortedAccounts = computed(() =>
+  [...accounts.value].sort((a, b) => (a.statement_day ?? 32) - (b.statement_day ?? 32)),
+)
 const tab = ref('accounts'),
   loading = ref(false),
   dialog = ref(false),
@@ -162,7 +165,7 @@ onMounted(load)
           </div>
           <div class="account-rows">
             <article
-              v-for="a in accounts"
+              v-for="a in sortedAccounts"
               :key="a.id"
               class="account-card"
               :class="{ inactive: !a.effective_active }"

@@ -215,32 +215,46 @@ test('compact account rows align on desktop and fit narrow screens', async ({ pa
   await page.route('**/api/v1/admin/accounts?*', (route) =>
     route.fulfill({ json: { items: empty ? [] : fixtures, total: empty ? 0 : fixtures.length } }),
   )
+  await page.route('**/api/v1/admin/accounts/layout-account-*', (route) => {
+    const account = fixtures.find((item) =>
+      route
+        .request()
+        .url()
+        .endsWith('/' + item.id),
+    )!
+    Object.assign(account, route.request().postDataJSON())
+    return route.fulfill({ json: account })
+  })
   await page.setViewportSize({ width: 1600, height: 1000 })
   await page.goto('/accounts')
   const rows = page.locator('.account-card')
   await expect(rows).toHaveCount(fixtures.length)
   await expect(page.locator('.account-list-header')).toBeVisible()
-  for (let index = 0; index < 4; index++) {
-    const box = (await rows.nth(index).boundingBox())!
+  const expectedOrder = [0, 1, 4, 6, 2, 3, 5].map((index) => fixtures[index].name)
+  await expect(rows.locator('h3')).toHaveText(expectedOrder)
+  const accountRow = (name: string) =>
+    rows.filter({ has: page.getByRole('heading', { name, exact: true }) })
+  for (const name of ['臻享白', 'DIY', '兴业', '农行']) {
+    const row = accountRow(name)
+    const box = (await row.boundingBox())!
     expect(box.height).toBeLessThanOrEqual(90)
-    const bounds = await rows
-      .nth(index)
-      .locator(':scope > div')
-      .evaluateAll((elements) =>
-        elements.map((element) => {
-          const rect = element.getBoundingClientRect()
-          return { x: rect.x, right: rect.right, centerY: rect.y + rect.height / 2 }
-        }),
-      )
+    const bounds = await row.locator(':scope > div').evaluateAll((elements) =>
+      elements.map((element) => {
+        const rect = element.getBoundingClientRect()
+        return { x: rect.x, right: rect.right, centerY: rect.y + rect.height / 2 }
+      }),
+    )
     for (let cell = 1; cell < bounds.length; cell++) {
       expect(bounds[cell].x).toBeGreaterThanOrEqual(bounds[cell - 1].right)
       expect(Math.abs(bounds[cell].centerY - bounds[0].centerY)).toBeLessThan(2)
     }
   }
-  await expect(rows.nth(5)).toContainText('出账日未设置')
-  await expect(rows.nth(5)).toContainText('暂未添加卡片')
-  await expect(rows.nth(6)).toHaveClass(/inactive/)
-  await expect(rows.nth(6).getByRole('button', { name: '添加卡片', exact: true })).toBeDisabled()
+  await expect(accountRow('待配置账户')).toContainText('出账日未设置')
+  await expect(accountRow('待配置账户')).toContainText('暂未添加卡片')
+  await expect(accountRow('已停用账户')).toHaveClass(/inactive/)
+  await expect(
+    accountRow('已停用账户').getByRole('button', { name: '添加卡片', exact: true }),
+  ).toBeDisabled()
   await page.screenshot({
     path: testInfo.outputPath('account-list-desktop.png'),
     fullPage: true,
@@ -286,6 +300,24 @@ test('compact account rows align on desktop and fit narrow screens', async ({ pa
         fullPage: true,
       })
   }
+  await page.getByRole('button', { name: '刷新', exact: true }).click()
+  await expect(rows.locator('h3')).toHaveText(expectedOrder)
+  await page.reload()
+  await expect(rows.locator('h3')).toHaveText(expectedOrder)
+  for (const [name, day] of [
+    ['臻享白', 31],
+    ['待配置账户', 1],
+  ] as const) {
+    await accountRow(name).getByRole('button', { name: '编辑', exact: true }).click()
+    await accountEditor.getByRole('spinbutton').fill(String(day))
+    await accountEditor.getByRole('button', { name: '保存', exact: true }).click()
+    await expect(accountEditor).not.toBeVisible()
+    await expect(accountRow(name).locator('.account-statement-day strong')).toHaveText(String(day))
+  }
+  const updatedOrder = [5, 1, 4, 6, 2, 3, 0].map((index) => fixtures[index].name)
+  await expect(rows.locator('h3')).toHaveText(updatedOrder)
+  await page.reload()
+  await expect(rows.locator('h3')).toHaveText(updatedOrder)
   empty = true
   await page.getByRole('button', { name: '刷新', exact: true }).click()
   await expect(rows).toHaveCount(0)
