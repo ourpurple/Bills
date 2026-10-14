@@ -115,9 +115,18 @@ onMounted(load)
           <el-tag v-if="s.payment_status === 'settled'" type="success">{{
             s.needs_update ? '旧账单已标记结清' : stateText(s)
           }}</el-tag>
-          <strong v-else>{{
-            Number(s.remaining) === 0 ? stateText(s) : due(s.days_until_due)
-          }}</strong>
+          <strong v-else class="bill-due-countdown">
+            <template
+              v-if="Number(s.remaining) > 0 && s.days_until_due !== null && s.days_until_due !== 0"
+            >
+              <span v-if="s.days_until_due < 0">已过期</span>
+              <span class="bill-due-number">{{ Math.abs(s.days_until_due) }}</span>
+              <span>{{ s.days_until_due < 0 ? '天' : '天后到期' }}</span>
+            </template>
+            <template v-else>{{
+              Number(s.remaining) === 0 ? stateText(s) : due(s.days_until_due)
+            }}</template>
+          </strong>
           <span class="bill-due-date">{{ s.due_date || '待确认' }}</span>
         </div>
         <div class="bill-amount" :class="{ urgent: isUrgent(s) }">

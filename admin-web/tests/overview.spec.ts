@@ -1,7 +1,9 @@
 import { test, expect } from '@playwright/test'
 
-for (const width of [1440, 390]) {
-  test(`overview highlights unpaid bills due within seven days (${width}px)`, async ({ page }) => {
+for (const width of [1440, 768, 390, 320]) {
+  test(`overview highlights unpaid bills due within seven days (${width}px)`, async ({
+    page,
+  }, testInfo) => {
     await page.setViewportSize({ width, height: 1000 })
     const cases = [
       { id: 'today', days: 0, urgent: true },
@@ -10,6 +12,7 @@ for (const width of [1440, 390]) {
       { id: 'seven-days', days: 7, urgent: true },
       { id: 'eight-days', days: 8, urgent: false },
       { id: 'nine-days', days: 9, urgent: false },
+      { id: 'distant', days: 365, urgent: false },
       { id: 'unknown', days: null, urgent: false },
       { id: 'settled', days: 4, remaining: '0.00', urgent: false },
       { id: 'settled-usd', days: -12, remaining: '0.00', urgent: false },
@@ -31,7 +34,10 @@ for (const width of [1440, 390]) {
       remaining: c.remaining ?? '100.00',
       payment_status: c.remaining === '0.00' ? 'settled' : 'unpaid',
       days_until_due: c.days,
-      due_date: c.days === null ? null : `2026-10-${String(13 + c.days).padStart(2, '0')}`,
+      due_date:
+        c.days === null
+          ? null
+          : new Date(Date.UTC(2026, 9, 13 + c.days)).toISOString().slice(0, 10),
       overdue: c.days !== null && c.days < 0 && c.remaining !== '0.00',
     }))
     await page.route('**/api/v1/auth/me', (route) =>
@@ -74,6 +80,32 @@ for (const width of [1440, 390]) {
       } else {
         await expect(deadline.locator('.el-tag')).toHaveCount(0)
       }
+      const number = deadline.locator('.bill-due-number')
+      if (c.remaining !== '0.00' && c.days !== null && c.days !== 0) {
+        await expect(number).toHaveText(String(Math.abs(c.days)))
+        const sizes = await number.evaluate((element) => ({
+          number: parseFloat(getComputedStyle(element).fontSize),
+          label: parseFloat(getComputedStyle(element.parentElement!).fontSize),
+        }))
+        expect(sizes.number).toBe(sizes.label * 5)
+        await expect(number).toHaveCSS('font-weight', '700')
+      } else {
+        await expect(number).toHaveCount(0)
+        if (c.days === 0) await expect(deadline.locator('strong')).toHaveText('今天到期')
+        if (c.days === null) await expect(deadline.locator('strong')).toHaveText('日期未知')
+      }
+      const rowBounds = (await row.boundingBox())!
+      const deadlineBounds = (await deadline.boundingBox())!
+      const amountBounds = (await amount.boundingBox())!
+      const buttonBounds = (await row.getByRole('button', { name: '查看' }).boundingBox())!
+      for (const bounds of [deadlineBounds, amountBounds, buttonBounds]) {
+        expect(bounds.x).toBeGreaterThanOrEqual(rowBounds.x)
+        expect(bounds.x + bounds.width).toBeLessThanOrEqual(rowBounds.x + rowBounds.width + 1)
+      }
+      expect(
+        deadlineBounds.x + deadlineBounds.width <= amountBounds.x ||
+          deadlineBounds.y + deadlineBounds.height <= amountBounds.y,
+      ).toBe(true)
       if (c.urgent) {
         await expect(amount).toHaveClass(/urgent/)
         await expect(deadline).toHaveClass(/urgent/)
@@ -92,6 +124,14 @@ for (const width of [1440, 390]) {
         await expect(deadline.locator('.bill-due-date')).not.toHaveCSS('color', 'rgb(192, 57, 43)')
       }
     }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      width,
+    )
+    await page.screenshot({
+      path: testInfo.outputPath(`overview-deadline-${width}.png`),
+      fullPage: true,
+      animations: 'disabled',
+    })
     const settled = latest.filter((s) => s.payment_status === 'settled')
     await page.route('**/api/v1/admin/accounts?*', (route) =>
       route.fulfill({ json: { items: [], total: 0 } }),

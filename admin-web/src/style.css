@@ -460,6 +460,19 @@ p {
   flex-direction: column;
   gap: 7px;
   min-width: 120px;
+  flex-shrink: 0;
+}
+.bill-due-countdown {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+}
+.bill-deadline .bill-due-number {
+  font-size: 5em;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 .bill-deadline .el-tag {
   align-self: flex-start;
@@ -1050,6 +1063,10 @@ p {
   }
   .bill-deadline {
     margin-left: 0;
+    flex-basis: 100%;
+  }
+  .bill-amount {
+    flex: 1;
   }
   .detail-grid {
     grid-template-columns: 1fr 1fr;
