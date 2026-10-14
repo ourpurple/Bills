@@ -459,7 +459,7 @@ p {
   display: flex;
   flex-direction: column;
   gap: 7px;
-  min-width: 100px;
+  min-width: 120px;
 }
 .bill-deadline .el-tag {
   align-self: flex-start;
@@ -958,11 +958,11 @@ p {
     flex-basis: calc(100% - 55px);
     max-width: calc(100% - 55px);
   }
-  .bill-amount {
+  .bill-deadline {
     margin-left: 55px;
     flex: 1;
   }
-  .bill-deadline {
+  .bill-amount {
     min-width: 90px;
   }
   .login-page {
@@ -1048,7 +1048,7 @@ p {
   .bill-row {
     padding: 17px 13px;
   }
-  .bill-amount {
+  .bill-deadline {
     margin-left: 0;
   }
   .detail-grid {
