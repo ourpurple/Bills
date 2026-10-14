@@ -87,7 +87,7 @@ for (const width of [1440, 768, 390, 320]) {
           number: parseFloat(getComputedStyle(element).fontSize),
           label: parseFloat(getComputedStyle(element.parentElement!).fontSize),
         }))
-        expect(sizes.number).toBe(sizes.label * 5)
+        expect(sizes.number).toBe(sizes.label * 3)
         await expect(number).toHaveCSS('font-weight', '700')
       } else {
         await expect(number).toHaveCount(0)
