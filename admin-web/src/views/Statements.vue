@@ -25,7 +25,8 @@ const filterAccount = ref(String(route.query.account_id || '')),
   moreFilters = ref(false),
   filterStatus = ref(String(route.query.status || '')),
   detail = ref<Statement | null>(null),
-  drawer = ref(false)
+  drawer = ref(false),
+  detailTab = ref('transactions')
 const editor = ref(false),
   editing = ref(''),
   form = ref<Record<string, any>>({}),
@@ -136,6 +137,7 @@ async function load() {
 async function show(id: string) {
   try {
     detail.value = await api<Statement>('/admin/statements/' + id)
+    if (!drawer.value) detailTab.value = 'transactions'
     drawer.value = true
   } catch (e) {
     ElMessage.error((e as Error).message)
@@ -576,8 +578,8 @@ onMounted(async () => {
         type="warning"
         :closable="false"
       />
-      <el-tabs
-        ><el-tab-pane label="还款记录"
+      <el-tabs v-model="detailTab"
+        ><el-tab-pane label="还款记录" name="repayments"
           ><el-empty
             v-if="!detail.repayments?.length"
             description="尚无还款记录"
@@ -598,7 +600,7 @@ onMounted(async () => {
               >撤销</el-button
             >
           </div></el-tab-pane
-        ><el-tab-pane label="计划还款"
+        ><el-tab-pane label="计划还款" name="plans"
           ><el-alert
             title="计划仅记录，不减少待还。本阶段尚未启用通知投递。"
             type="info"
@@ -621,7 +623,7 @@ onMounted(async () => {
               >取消计划</el-button
             >
           </div></el-tab-pane
-        ><el-tab-pane label="交易详单"
+        ><el-tab-pane label="交易详单" name="transactions"
           ><el-tag>{{ detailState(detail.transaction_status) }}</el-tag>
           <p class="muted">
             未提供或部分详单不等于零消费；交易方向及金额来自核对结果，不代表银行资金到账。
@@ -662,7 +664,7 @@ onMounted(async () => {
               </div></el-collapse-item
             ></el-collapse
           ></el-tab-pane
-        ><el-tab-pane label="修订历史"
+        ><el-tab-pane label="修订历史" name="revisions"
           ><div v-for="r in detail.revisions" :key="r.version" class="record-row">
             <div>
               <strong>v{{ r.version }} · {{ amountText(r.amount, detail.currency) }}</strong
@@ -670,7 +672,7 @@ onMounted(async () => {
             </div>
             <span>{{ r.due_date }}</span>
           </div></el-tab-pane
-        ><el-tab-pane label="交易明细"
+        ><el-tab-pane label="交易明细" name="legacy-transactions"
           ><el-empty description="该人工账单未提供交易明细。" :image-size="70" /></el-tab-pane
       ></el-tabs>
       <p class="fine-print">仅记录用户操作，不执行转账，也不确认银行实际到账。</p></template

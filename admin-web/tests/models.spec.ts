@@ -113,7 +113,10 @@ test('P3: configure → model candidate → review → publish → details → r
   await expect(page).toHaveURL(/statements\?detail=/)
   const archive = page.getByRole('dialog', { name: '账单档案' })
   await expect(archive).toContainText('记录待还 ¥ 1,100.00')
-  await archive.getByRole('tab', { name: '交易详单' }).click()
+  await expect(archive.getByRole('tab', { name: '交易详单', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
   await expect(archive).toContainText('完整详单')
   await expect(archive.getByRole('row').filter({ hasText: '合成商店' })).toHaveCount(2)
   const statementId = new URL(page.url()).searchParams.get('detail')!

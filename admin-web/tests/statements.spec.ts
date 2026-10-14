@@ -213,3 +213,77 @@ test('statements status tag highlights unpaid bills in red (danger)', async ({ p
   await expect(drawerTag).toHaveText('待还款')
   await expect(drawerTag).toHaveClass(/el-tag--danger/)
 })
+
+test('statement archive defaults to transaction details on every open', async ({ page }) => {
+  const account = {
+    id: 'account-1',
+    bank_code: 'cmb',
+    mode: 'independent',
+    bank_id: 'bank-1',
+    cardholder_id: 'holder-1',
+    bank_name: '招商银行',
+    cardholder_name: '示例持卡人',
+    cards: [{ id: 'card-1', name: '测试卡', last_four: '1234', active: true }],
+  }
+  const statement = {
+    id: 'statement-1',
+    account,
+    statement_date: '2026-10-06',
+    due_date: '2026-10-26',
+    currency: 'CNY',
+    amount: '100.00',
+    remaining: '100.00',
+    paid: '0.00',
+    excess: '0.00',
+    status: 'confirmed',
+    payment_status: 'unpaid',
+    version: 1,
+    source_kind: 'model',
+    transaction_status: 'complete',
+    transactions: [
+      {
+        transaction_date: '2026-10-01',
+        description: '默认显示的测试交易',
+        direction: 'debit',
+        amount: '100.00',
+        currency: 'CNY',
+      },
+    ],
+    repayments: [],
+    plans: [],
+    revisions: [],
+    detail_history: [],
+  }
+  await page.route('**/api/v1/auth/me', (route) =>
+    route.fulfill({ json: { username: 'test-admin', csrf_token: 'test-csrf' } }),
+  )
+  await page.route('**/api/v1/admin/accounts?*', (route) =>
+    route.fulfill({ json: { items: [account], total: 1 } }),
+  )
+  await page.route('**/api/v1/admin/statements?*', (route) =>
+    route.fulfill({ json: { items: [statement], total: 1 } }),
+  )
+  await page.route('**/api/v1/admin/statements/statement-1', (route) =>
+    route.fulfill({ json: statement }),
+  )
+
+  await page.goto('/statements')
+  const drawer = page.getByRole('dialog', { name: '账单档案' })
+  const transactionsTab = drawer.getByRole('tab', { name: '交易详单', exact: true })
+  const openDetails = page.getByRole('button', { name: '详情', exact: true })
+  await openDetails.click()
+  await expect(transactionsTab).toHaveAttribute('aria-selected', 'true')
+  await expect(drawer.getByRole('cell', { name: '默认显示的测试交易' })).toBeVisible()
+
+  await drawer.getByRole('tab', { name: '还款记录', exact: true }).click()
+  await expect(drawer.getByText('尚无还款记录')).toBeVisible()
+  await drawer.getByRole('button', { name: '关闭此对话框' }).click()
+  await expect(drawer).not.toBeVisible()
+  await openDetails.click()
+  await expect(transactionsTab).toHaveAttribute('aria-selected', 'true')
+  await expect(drawer.getByRole('cell', { name: '默认显示的测试交易' })).toBeVisible()
+
+  await page.goto('/statements?detail=statement-1')
+  await expect(transactionsTab).toHaveAttribute('aria-selected', 'true')
+  await expect(drawer.getByRole('cell', { name: '默认显示的测试交易' })).toBeVisible()
+})
