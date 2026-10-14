@@ -48,9 +48,12 @@ const availableAccounts = computed(() =>
       (!filterHolder.value || a.cardholder_id === filterHolder.value),
   ),
 )
-function cardLabel(account: Account) {
+function accountCardsText(account: Account) {
   const cards = account.cards.map((c) => `${c.name} · ${c.last_four}`).join(' / ')
-  return `${cards || account.name + '（暂未添加卡片）'} · ${account.bank_name} · ${account.cardholder_name}`
+  return cards || (account.name ? `${account.name}（暂未添加卡片）` : '暂未添加卡片')
+}
+function cardLabel(account: Account) {
+  return `${accountCardsText(account)} · ${account.bank_name} · ${account.cardholder_name}`
 }
 const activeFilterCount = computed(
   () =>
@@ -377,8 +380,7 @@ onMounted(async () => {
               :aria-label="cardLabel(account)"
             >
               <span class="statement-card-option-name">{{
-                account.cards.map((c) => `${c.name} · ${c.last_four}`).join(' / ') ||
-                account.name + '（暂未添加卡片）'
+                accountCardsText(account)
               }}</span>
               <span class="statement-card-option-meta"
                 >{{ account.bank_name }} · {{ account.cardholder_name
@@ -535,8 +537,8 @@ onMounted(async () => {
           {{ detail.account.bank_name.slice(0, 1) }}
         </div>
         <div>
-          <h2>{{ detail.account.bank_name }} · {{ detail.account.cardholder_name }}</h2>
-          <p>{{ detail.account.name }} · {{ detail.statement_date }} · v{{ detail.version }}</p>
+          <h2>{{ accountCardsText(detail.account) }}</h2>
+          <p>{{ detail.account.bank_name }} · {{ detail.account.cardholder_name }}</p>
         </div>
         <el-tag
           :type="
@@ -555,7 +557,12 @@ onMounted(async () => {
         </div>
       </div>
       <el-descriptions :column="2" border
-        ><el-descriptions-item label="到期日">{{ detail.due_date || '未知' }}</el-descriptions-item
+        ><el-descriptions-item label="账单日">{{
+          detail.statement_date
+        }}</el-descriptions-item
+        ><el-descriptions-item label="到期日">{{
+          detail.due_date || '未知'
+        }}</el-descriptions-item
         ><el-descriptions-item label="最低还款">{{
           amountText(detail.minimum, detail.currency)
         }}</el-descriptions-item
@@ -564,6 +571,9 @@ onMounted(async () => {
           {{ detail.period_end || '未知' }}</el-descriptions-item
         ><el-descriptions-item label="来源">{{
           detail.source_kind === 'model' ? '模型识别 / 已核对' : '人工录入'
+        }}</el-descriptions-item
+        ><el-descriptions-item label="版本">v{{
+          detail.version
         }}</el-descriptions-item></el-descriptions
       >
       <div class="detail-actions">
