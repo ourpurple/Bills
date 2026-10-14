@@ -49,7 +49,7 @@ const availableAccounts = computed(() =>
   ),
 )
 function cardLabel(account: Account) {
-  const cards = account.cards.map((c) => `${c.name} · 尾号 ${c.last_four}`).join(' / ')
+  const cards = account.cards.map((c) => `${c.name} · ${c.last_four}`).join(' / ')
   return `${cards || account.name + '（暂未添加卡片）'} · ${account.bank_name} · ${account.cardholder_name}`
 }
 const activeFilterCount = computed(
@@ -377,7 +377,7 @@ onMounted(async () => {
               :aria-label="cardLabel(account)"
             >
               <span class="statement-card-option-name">{{
-                account.cards.map((c) => `${c.name} · 尾号 ${c.last_four}`).join(' / ') ||
+                account.cards.map((c) => `${c.name} · ${c.last_four}`).join(' / ') ||
                 account.name + '（暂未添加卡片）'
               }}</span>
               <span class="statement-card-option-meta"

@@ -114,7 +114,7 @@ for (const { view, width } of ['statements', 'overview'].flatMap((view) =>
       for (const [cardIndex, card] of account.cards.entries()) {
         const cardRow = identity.locator('.statement-card').nth(cardIndex)
         await expect(cardRow.locator('.statement-card-name')).toHaveText(card.name)
-        await expect(cardRow.locator('.statement-card-tail')).toHaveText(`· 尾号 ${card.last_four}`)
+        await expect(cardRow.locator('.statement-card-tail')).toHaveText(`· ${card.last_four}`)
         await expect(cardRow).toHaveCSS('font-size', '14px')
         await expect(cardRow).toHaveCSS('font-weight', '600')
         await expect(cardRow).toHaveCSS('color', 'rgb(37, 57, 50)')

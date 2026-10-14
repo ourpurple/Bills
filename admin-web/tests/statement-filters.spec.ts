@@ -128,7 +128,7 @@ for (const width of [1440, 390]) {
 
 test('bank and holder narrow card choices and clear an incompatible card', async ({ page }) => {
   await setup(page)
-  await choose(page, '卡片筛选', '经典白 · 尾号 9999 / 普卡 · 尾号 9166 · 招商银行 · 杨小宾')
+  await choose(page, '卡片筛选', '经典白 · 9999 / 普卡 · 9166 · 招商银行 · 杨小宾')
   await expect(page.locator('.filter-note')).toContainText('不按卡片拆分金额')
   await choose(page, '银行筛选', '广发银行')
   await expect(page.locator('.filter-card')).toContainText('全部卡片')
@@ -253,7 +253,7 @@ for (const width of [1440, 390]) {
     await page.getByRole('link', { name: '账单管理', exact: true }).click()
     await expect(page.locator('.statement-filter-footer')).toContainText('24 份账单')
     await expect(page.locator('.filter-card')).toContainText('全部卡片')
-    await choose(page, '卡片筛选', '臻享白 · 尾号 9759 · 广发银行 · 牛整辉')
+    await choose(page, '卡片筛选', '臻享白 · 9759 · 广发银行 · 牛整辉')
     await expect(page.locator('.statement-filter-footer')).toContainText('8 份账单')
     await page.getByRole('button', { name: '重置筛选' }).click()
     await expect(page.locator('.statement-filter-footer')).toContainText('24 份账单')

@@ -6,7 +6,7 @@ defineProps<{ account: Account }>()
   <div class="statement-identity">
     <div v-for="card in account.cards" :key="card.id" class="statement-card">
       <span class="statement-card-name">{{ card.name }}</span>
-      <span class="statement-card-tail">· 尾号 {{ card.last_four }}</span>
+      <span class="statement-card-tail">· {{ card.last_four }}</span>
     </div>
     <div v-if="!account.cards.length" class="table-sub">暂未添加卡片</div>
     <div class="statement-account">{{ account.bank_name }} · {{ account.cardholder_name }}</div>
