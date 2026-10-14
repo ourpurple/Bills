@@ -142,3 +142,74 @@ for (const { view, width } of ['statements', 'overview'].flatMap((view) =>
     })
   })
 }
+
+test('statements status tag highlights unpaid bills in red (danger)', async ({ page }) => {
+  const account = {
+    id: 'acc-1',
+    bank_code: 'gfb',
+    mode: 'independent',
+    bank_id: 'bank-1',
+    cardholder_id: 'holder-1',
+    name: '测试账户',
+    bank_name: '广发银行',
+    cardholder_name: '示例持卡人',
+    cards: [{ id: 'card-1', name: '广发臻享白', last_four: '0759', active: true }],
+  }
+  const statements = [
+    {
+      id: 'statement-unpaid',
+      account,
+      statement_date: '2026-10-06',
+      currency: 'CNY',
+      amount: '100.00',
+      remaining: '100.00',
+      due_date: '2026-11-02',
+      days_until_due: 19,
+      status: 'confirmed',
+      payment_status: 'unpaid',
+      overdue: false,
+    },
+    {
+      id: 'statement-settled',
+      account,
+      statement_date: '2026-10-06',
+      currency: 'CNY',
+      amount: '100.00',
+      remaining: '0.00',
+      due_date: '2026-11-02',
+      days_until_due: 19,
+      status: 'confirmed',
+      payment_status: 'settled',
+      overdue: false,
+    },
+  ]
+  await page.route('**/api/v1/auth/me', (route) =>
+    route.fulfill({ json: { username: 'test-admin', csrf_token: 'test-csrf' } }),
+  )
+  await page.route('**/api/v1/admin/accounts?*', (route) =>
+    route.fulfill({ json: { items: [account], total: 1 } }),
+  )
+  await page.route('**/api/v1/admin/statements?*', (route) =>
+    route.fulfill({ json: { items: statements, total: statements.length } }),
+  )
+  await page.route('**/api/v1/admin/statements/statement-unpaid', (route) =>
+    route.fulfill({ json: { ...statements[0], version: 1, source_kind: 'manual', paid: '0.00', excess: '0.00', repayments: [] } }),
+  )
+
+  await page.goto('/statements')
+
+  const unpaidTag = page.locator('.el-table .el-tag').filter({ hasText: '待还款' })
+  await expect(unpaidTag).toBeVisible()
+  await expect(unpaidTag).toHaveClass(/el-tag--danger/)
+
+  const settledTag = page.locator('.el-table .el-tag').filter({ hasText: '已标记结清' })
+  await expect(settledTag).toBeVisible()
+  await expect(settledTag).toHaveClass(/el-tag--success/)
+
+  // Verify detail drawer tag
+  await page.locator('.el-table tbody tr').first().getByRole('button', { name: '详情' }).click()
+  await expect(page.locator('.el-drawer')).toBeVisible()
+  const drawerTag = page.locator('.detail-heading .el-tag')
+  await expect(drawerTag).toHaveText('待还款')
+  await expect(drawerTag).toHaveClass(/el-tag--danger/)
+})

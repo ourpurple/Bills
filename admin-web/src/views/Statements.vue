@@ -6,7 +6,7 @@ import { Plus, Refresh, Search, ArrowDown, ArrowUp } from '@element-plus/icons-v
 import AccountIdentity from '../components/AccountIdentity.vue'
 import { detailState } from '../model-types'
 import { api, allItems, ApiError } from '../api'
-import { amountText, dateTime, stateText, type Page, type Account, type Statement } from '../types'
+import { amountText, dateTime, stateText, stateTagType, type Page, type Account, type Statement } from '../types'
 const route = useRoute(),
   rows = ref<Statement[]>([]),
   accounts = ref<Account[]>([]),
@@ -502,18 +502,7 @@ onMounted(async () => {
         label="状态"
         min-width="120"
         ><template #default="{ row }"
-          ><el-tag
-            :type="
-              row.status === 'draft'
-                ? 'warning'
-                : row.payment_status === 'settled'
-                  ? 'success'
-                  : row.overdue
-                    ? 'danger'
-                    : 'info'
-            "
-            >{{ stateText(row) }}</el-tag
-          ></template
+          ><el-tag :type="stateTagType(row)">{{ stateText(row) }}</el-tag></template
         ></el-table-column
       ><el-table-column label="操作" width="80" fixed="right"
         ><template #default="{ row }"
@@ -540,14 +529,7 @@ onMounted(async () => {
           <h2>{{ accountCardsText(detail.account) }}</h2>
           <p>{{ detail.account.bank_name }} · {{ detail.account.cardholder_name }}</p>
         </div>
-        <el-tag
-          :type="
-            detail.status === 'confirmed' && detail.payment_status === 'settled'
-              ? 'success'
-              : 'primary'
-          "
-          >{{ stateText(detail) }}</el-tag
-        >
+        <el-tag :type="stateTagType(detail)">{{ stateText(detail) }}</el-tag>
       </div>
       <div class="detail-summary">
         <span>本期应还</span><strong>{{ amountText(detail.amount, detail.currency) }}</strong>

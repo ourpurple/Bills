@@ -133,6 +133,26 @@ export const stateText = (s: Statement) =>
             : s.payment_status === 'partial'
               ? '部分还款'
               : '待还款'
+export const stateTagType = (
+  s: Statement | null | undefined,
+): 'success' | 'warning' | 'danger' | 'info' => {
+  if (!s) return 'info'
+  const text = stateText(s)
+  switch (text) {
+    case '已标记结清':
+      return 'success'
+    case '待还款':
+    case '已过到期日':
+      return 'danger'
+    case '待确认':
+    case '部分还款':
+    case '超额标记':
+      return 'warning'
+    case '已作废':
+    default:
+      return 'info'
+  }
+}
 export const dateTime = (s: string | null | undefined) => {
   if (!s) return '—'
   const date = new Date(s)
