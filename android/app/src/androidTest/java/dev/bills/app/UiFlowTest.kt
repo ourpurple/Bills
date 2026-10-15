@@ -23,16 +23,32 @@ class UiFlowTest {
         compose.onNodeWithText("一次性配对码").performTextInput(f.getString("code"))
         compose.onNodeWithText("配对并连接").performScrollTo().performClick()
         compose.waitUntil(30000) {
-            compose.onAllNodesWithText("本期记录待还").fetchSemanticsNodes().isNotEmpty()
+            compose.onAllNodesWithText("全部待还").fetchSemanticsNodes().isNotEmpty()
         }
-        compose
-            .onNode(hasClickAction() and hasText("日常账户", substring = true))
-            .performScrollTo()
-            .performClick()
+        val billTag = "bill-${f.getString("statement_id")}"
+        compose.onNodeWithTag("screen-home").performScrollToNode(hasTestTag(billTag))
+        compose.onNodeWithTag(billTag).performClick()
+        val monthTag = "month-${f.getString("statement_id")}"
         compose.waitUntil(30000) {
-            compose.onAllNodes(hasText("记录还款") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
+            compose
+                .onAllNodes(hasTestTag(monthTag) and isEnabled())
+                .fetchSemanticsNodes()
+                .isNotEmpty()
         }
-        compose.onNodeWithText("记录还款").performScrollTo().performClick()
+        compose.onNodeWithTag("mark-payment").assertDoesNotExist()
+        compose.onNodeWithTag(monthTag).performClick()
+        compose.waitUntil(30000) {
+            compose
+                .onAllNodes(hasTestTag("details-more") and isEnabled())
+                .fetchSemanticsNodes()
+                .isNotEmpty()
+        }
+        compose.onNodeWithTag("details-more").performClick()
+        compose.onNodeWithTag("open-statement").performClick()
+        compose.waitUntil(30000) {
+            compose.onAllNodes(hasText("标记已还款") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("mark-payment").performClick()
         compose.onNodeWithText("金额 / CNY").performTextInput("25")
         compose.onNodeWithText("在线提交").performClick()
         compose.waitUntil(30000) {
@@ -44,7 +60,7 @@ class UiFlowTest {
         compose.waitUntil(30000) {
             compose.onAllNodes(hasText("计划还款") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
         }
-        compose.onNodeWithText("计划还款").performScrollTo().performClick()
+        compose.onNodeWithText("计划还款").performClick()
         compose.onNodeWithText("金额 / CNY").performTextInput("40")
         compose.onNode(hasText("通知功能尚未实现", substring = true)).assertExists()
         compose.onNodeWithText("在线提交").performClick()
@@ -61,9 +77,16 @@ class UiFlowTest {
             )
         }
         compose.waitUntil(30000) {
-            compose.onAllNodes(hasText("记录还款") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
+            compose.onAllNodes(hasText("标记已还款") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
         }
-        compose.onNodeWithText("连接").performClick()
+        compose.onNodeWithTag("back").performClick()
+        compose.waitUntil(30000) {
+            compose
+                .onAllNodes(hasTestTag("nav-settings") and isEnabled())
+                .fetchSemanticsNodes()
+                .isNotEmpty()
+        }
+        compose.onNodeWithTag("nav-settings").performClick()
         compose.onNodeWithText("断开连接 / 更换服务").performScrollTo().performClick()
         compose.onNodeWithText("确认清理并断开").performClick()
         compose.waitUntil(20000) {

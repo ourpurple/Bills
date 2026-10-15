@@ -24,15 +24,36 @@ data class UiState(
     val history: Page<Statement>? = null,
     val statement: Statement? = null,
     val transactions: Page<Transaction>? = null,
+    val transactionsIncomplete: Boolean = false,
     val repayments: Page<PaymentRecord>? = null,
     val plans: Page<PaymentRecord>? = null,
     val pending: Pending? = null,
+    val detailReturn: String = "home",
+    val detailSection: String = "transactions",
+    val expandedStatementId: String? = null,
+    val historyAccountId: String? = null,
+    val historyCached: Boolean = true,
+    val historyAt: Long? = null,
+    val amountsHidden: Boolean = false,
+    val defaultAccountId: String? = null,
 )
 
 class BillsViewModel(application: Application) : AndroidViewModel(application) {
     private val db = CacheDb.open(application)
     private val repo = Repository(Vault(application), db)
-    private val mutable = MutableStateFlow(UiState())
+    private val preferences =
+        application.getSharedPreferences(
+            "display-preferences",
+            android.content.Context.MODE_PRIVATE,
+        )
+
+    private fun initialState() =
+        UiState(
+            amountsHidden = preferences.getBoolean("amounts-hidden", false),
+            defaultAccountId = preferences.getString("default-account", null),
+        )
+
+    private val mutable = MutableStateFlow(initialState())
     val state = mutable.asStateFlow()
 
     init {
@@ -68,14 +89,16 @@ class BillsViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 failure(e)
             } finally {
-                mutable.update { it.copy(busy = false, pending = repo.pending) }
+                mutable.update {
+                    it.rememberHistoryRead().copy(busy = false, pending = repo.pending)
+                }
             }
         }
     }
 
     private fun failure(e: Exception) {
         if (repo.session == null && mutable.value.connection != null) {
-            mutable.value = UiState(busy = true, message = "设备授权已失效，本机凭证和缓存已清理，请重新配对")
+            mutable.value = initialState().copy(busy = true, message = "设备授权已失效，本机凭证和缓存已清理，请重新配对")
             return
         }
         val text =
@@ -121,20 +144,88 @@ class BillsViewModel(application: Application) : AndroidViewModel(application) {
         mutable.update { it.copy(accounts = accounts.data) }
     }
 
-    fun home() = task {
-        mutable.update { it.copy(screen = "home", selectedAccount = null, statement = null) }
-        syncHome()
+    fun home() = tab("home")
+
+    fun tab(name: String) = task {
+        require(name in listOf("home", "details", "settings"))
+        mutable.update { it.copy(screen = name, message = null) }
+        if (name == "home") syncHome()
+        if (name == "details") {
+            val state = mutable.value
+            val account = state.selectedAccount ?: findInitialAccount()
+            if (
+                account != null && (state.history == null || state.historyAccountId != account.id)
+            ) {
+                mutable.update { it.copy(selectedAccount = account) }
+                loadHistory()
+            } else {
+                mutable.update { it.copy(cached = it.historyCached, cacheAt = it.historyAt) }
+            }
+        }
     }
 
-    fun tab(name: String) {
-        if (!mutable.value.busy) mutable.update { it.copy(screen = name, message = null) }
+    private suspend fun findInitialAccount(): Account? {
+        val state = mutable.value
+        val fallback =
+            state.accounts?.items?.firstOrNull { it.active } ?: state.accounts?.items?.firstOrNull()
+        val id = state.defaultAccountId ?: return fallback
+        state.accounts
+            ?.items
+            ?.find { it.id == id }
+            ?.let {
+                return it
+            }
+        (state.home?.latest.orEmpty() + state.home?.historical.orEmpty())
+            .find { it.account.id == id }
+            ?.let {
+                return it.account
+            }
+        // Locate a saved account outside the first page without fetching any transaction history.
+        var page = state.accounts
+        while (page?.hasNext == true) {
+            val next = page.page + 1
+            val result =
+                repo.read("/api/v1/app/accounts?page=$next&page_size=20") {
+                    Json.page(it, Json::account)
+                }
+            observed(result)
+            val data = result.data
+            page = data
+            data.items
+                .find { it.id == id }
+                ?.let {
+                    mutable.update { state -> state.copy(accounts = data) }
+                    return it
+                }
+        }
+        mutable.update { it.copy(message = "默认账户未在当前列表找到，已选择可用账户；可在设置中重新选择。") }
+        return fallback
+    }
+
+    fun section(name: String) {
+        if (!mutable.value.busy && name in listOf("transactions", "repayments", "plans"))
+            mutable.update { it.copy(detailSection = name) }
+    }
+
+    fun hideAmounts(hidden: Boolean) {
+        preferences.edit().putBoolean("amounts-hidden", hidden).apply()
+        mutable.update { it.copy(amountsHidden = hidden) }
+    }
+
+    fun defaultAccount(id: String?) {
+        preferences.edit().putString("default-account", id).apply()
+        mutable.update { it.copy(defaultAccountId = id) }
     }
 
     fun refresh() = task {
         when (mutable.value.screen) {
             "detail" -> loadDetail(mutable.value.statement?.id ?: return@task)
-            "account" -> loadHistory(1)
-            "accounts" -> loadAccounts(1)
+            "details" -> {
+                if (mutable.value.selectedAccount != null) loadHistory()
+                else {
+                    loadAccounts(1)
+                }
+            }
             else -> syncHome()
         }
     }
@@ -145,36 +236,50 @@ class BillsViewModel(application: Application) : AndroidViewModel(application) {
             repo.read("/api/v1/app/accounts?page=$page&page_size=20") {
                 Json.page(it, Json::account)
             }
-        observed(result, true)
+        // Paging the picker must not turn a cached statement into an online/writeable one.
+        observed(result, mutable.value.screen !in listOf("details", "detail"))
         mutable.update { it.copy(accounts = result.data) }
     }
 
     fun accountsPage(page: Int) = task { loadAccounts(page) }
 
     fun account(row: Account) = task {
-        mutable.update {
-            it.copy(screen = "account", selectedAccount = row, statement = null, history = null)
-        }
-        loadHistory(1)
+        mutable.update { it.openAccountHistory(row) }
+        loadHistory()
     }
 
-    private suspend fun loadHistory(page: Int) {
+    private suspend fun loadHistory() {
         val id = mutable.value.selectedAccount?.id ?: return
-        mutable.update { it.copy(history = null) }
-        val result =
-            repo.read("/api/v1/app/statements?account_id=$id&page=$page&page_size=20") {
-                Json.page(it, Json::statement)
-            }
-        observed(result, true)
-        mutable.update { it.copy(history = result.data) }
+        mutable.update {
+            it.copy(
+                history = null,
+                statement = null,
+                transactions = null,
+                repayments = null,
+                plans = null,
+                expandedStatementId = null,
+            )
+        }
+        // Keep the API/cache paged, but show every month without paging controls in Android.
+        // Transaction details are still read only when the user expands a month.
+        readAllStatementMonths(
+            accountId = id,
+            read = { page ->
+                repo.read("/api/v1/app/statements?account_id=$id&page=$page&page_size=20") {
+                    Json.page(it, Json::statement)
+                }
+            },
+            publish = { result -> mutable.update { it.withHistoryPage(id, result) } },
+        )
     }
-
-    fun historyPage(page: Int) = task { loadHistory(page) }
 
     fun detail(row: Statement) = task {
         mutable.update {
             it.copy(
                 screen = "detail",
+                detailReturn = if (it.screen == "details") "details" else "home",
+                selectedAccount = row.account,
+                expandedStatementId = row.id,
                 statement = row,
                 transactions = null,
                 repayments = null,
@@ -185,38 +290,82 @@ class BillsViewModel(application: Application) : AndroidViewModel(application) {
         loadDetail(row.id)
     }
 
+    fun expand(row: Statement) = task {
+        if (mutable.value.expandedStatementId == row.id) {
+            mutable.update { it.copy(expandedStatementId = null) }
+        } else {
+            mutable.update {
+                it.copy(
+                    statement = row,
+                    expandedStatementId = row.id,
+                    cached = true,
+                    transactions = null,
+                    repayments = null,
+                    plans = null,
+                )
+            }
+            loadDetail(row.id)
+        }
+    }
+
     private suspend fun loadDetail(id: String) {
         val summary =
             repo.read("/api/v1/app/statements/$id/summary") { Json.statement(JSONObject(it)) }
         observed(summary, true)
         mutable.update {
-            it.copy(statement = summary.data, transactions = null, repayments = null, plans = null)
+            it.copy(
+                statement = summary.data,
+                transactions = null,
+                repayments = null,
+                plans = null,
+                history =
+                    it.history?.let { page ->
+                        page.copy(
+                            items =
+                                page.items.map { row -> if (row.id == id) summary.data else row }
+                        )
+                    },
+                cached = it.cached || (it.screen == "details" && it.historyCached),
+                cacheAt =
+                    if (it.screen == "details") listOfNotNull(it.cacheAt, it.historyAt).minOrNull()
+                    else it.cacheAt,
+            )
         }
         val reads: List<suspend () -> Unit> =
-            listOf({ loadTransactions(1) }, { loadRecords(false, 1) }, { loadRecords(true, 1) })
+            listOf({ loadTransactions() }, { loadRecords(false, 1) }, { loadRecords(true, 1) })
         for (read in reads) try {
             read()
         } catch (e: Exception) {
             if (repo.session == null) throw e
             failure(e)
         }
+        if (mutable.value.screen == "details")
+            mutable.update { it.copy(historyCached = it.cached, historyAt = it.cacheAt) }
     }
 
-    private suspend fun loadTransactions(page: Int) {
+    private suspend fun loadTransactions() {
         val s = mutable.value.statement ?: return
-        mutable.update { it.copy(transactions = null) }
-        val result =
-            repo.read(
-                "/api/v1/app/statements/${s.id}/transactions?version=${s.version}&page=$page&page_size=20"
-            ) {
-                Json.page(it, Json::transaction)
-            }
-        observed(result)
-        check(result.data.version == s.version)
-        mutable.update { it.copy(transactions = result.data) }
+        mutable.update { it.copy(transactions = null, transactionsIncomplete = true) }
+        readAllTransactions(
+            version = s.version,
+            read = { page ->
+                repo.read(
+                    "/api/v1/app/statements/${s.id}/transactions?version=${s.version}&page=$page&page_size=20"
+                ) {
+                    Json.page(it, Json::transaction)
+                }
+            },
+            publish = { result ->
+                observed(result)
+                mutable.update {
+                    it.copy(
+                        transactions = result.data,
+                        transactionsIncomplete = result.data.items.size != result.data.total,
+                    )
+                }
+            },
+        )
     }
-
-    fun transactionsPage(page: Int) = task { loadTransactions(page) }
 
     private suspend fun loadRecords(plan: Boolean, page: Int) {
         val s = mutable.value.statement ?: return
@@ -234,14 +383,17 @@ class BillsViewModel(application: Application) : AndroidViewModel(application) {
 
     fun recordsPage(plan: Boolean, page: Int) = task { loadRecords(plan, page) }
 
-    fun back() {
-        if (!mutable.value.busy)
+    fun back() = task {
+        val target = mutable.value.detailReturn
+        mutable.update { it.copy(screen = target, message = null) }
+        if (target == "home") syncHome()
+        else
             mutable.update {
                 it.copy(
-                    screen =
-                        if (it.screen == "detail" && it.selectedAccount != null) "account"
-                        else "home",
-                    message = null,
+                    cached = it.cached || it.historyCached,
+                    cacheAt = listOfNotNull(it.cacheAt, it.historyAt).minOrNull(),
+                    historyCached = it.cached || it.historyCached,
+                    historyAt = listOfNotNull(it.cacheAt, it.historyAt).minOrNull(),
                 )
             }
     }
@@ -310,10 +462,12 @@ class BillsViewModel(application: Application) : AndroidViewModel(application) {
     fun disconnect() = task {
         val revoked = repo.disconnect()
         mutable.value =
-            UiState(
-                busy = true,
-                message = if (revoked) "设备已断开并撤销授权，本机缓存已清理" else "本机凭证和缓存已清理；未能确认远端撤销，请到后台安全设置撤销此设备",
-            )
+            initialState()
+                .copy(
+                    busy = true,
+                    message =
+                        if (revoked) "设备已断开并撤销授权，本机缓存已清理" else "本机凭证和缓存已清理；未能确认远端撤销，请到后台安全设置撤销此设备",
+                )
     }
 
     override fun onCleared() {
