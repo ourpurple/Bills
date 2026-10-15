@@ -88,6 +88,45 @@ internal fun canWrite(s: UiState): Boolean =
         !s.busy && !s.cached && s.pending == null && it.status == "confirmed" && it.account.active
     } ?: false
 
+// Use the remaining balance, not the bill total or a display string with grouping separators.
+internal fun paymentDefaultAmount(statement: Statement?, currency: String, plan: Boolean): String {
+    if (plan || statement == null || statement.currency != currency) return ""
+    return statement.remaining?.let { runCatching { Rules.amount(it, currency) }.getOrDefault("") }
+        ?: ""
+}
+
+// The home shortcut is offered only for a known, positive unpaid balance.
+internal fun hasRepayableBalance(row: Statement): Boolean =
+    row.status == "confirmed" &&
+        row.paymentStatus in listOf("unpaid", "partial") &&
+        row.remaining?.toBigDecimalOrNull()?.signum() == 1
+
+// Bind the form to its own bill, never to a retained statement from another screen.
+internal fun homePaymentTarget(s: UiState, selected: Statement): Statement? {
+    if (s.screen != "home" || s.connection == null || s.cached || s.pending != null) return null
+    return (s.home?.latest.orEmpty() + s.home?.historical.orEmpty())
+        .singleOrNull { it.id == selected.id }
+        ?.takeIf { it == selected && it.account.active && hasRepayableBalance(it) }
+}
+
+internal fun canRecordHomePayment(s: UiState, selected: Statement): Boolean =
+    !s.busy && homePaymentTarget(s, selected) != null
+
+// Recheck write-sensitive terms against a fresh summary before staging a submission.
+internal fun sameHomePaymentBill(selected: Statement, fresh: Statement): Boolean =
+    hasRepayableBalance(fresh) &&
+        fresh.account.active &&
+        selected.id == fresh.id &&
+        selected.account == fresh.account &&
+        selected.version == fresh.version &&
+        selected.currency == fresh.currency &&
+        selected.date == fresh.date &&
+        selected.status == fresh.status &&
+        selected.amount == fresh.amount &&
+        selected.remaining == fresh.remaining &&
+        selected.paid == fresh.paid &&
+        selected.paymentStatus == fresh.paymentStatus
+
 // A cached nested read must stay read-only when returning via Home to the retained history.
 internal fun UiState.rememberHistoryRead(): UiState =
     when {

@@ -29,6 +29,56 @@ class UiRulesTest {
         )
 
     @Test
+    fun repaymentDefaultUsesRemainingNotOriginalTotal() {
+        val partial =
+            bill.copy(
+                amount = "5000.00",
+                paid = "884.18",
+                remaining = "4115.82",
+                paymentStatus = "partial",
+            )
+        assertEquals("4115.82", paymentDefaultAmount(partial, "CNY", false))
+    }
+
+    @Test
+    fun repaymentDefaultUsesCurrencyPrecisionWithoutGrouping() {
+        listOf("CNY", "USD", "EUR", "HKD").forEach { currency ->
+            assertEquals(
+                "4115.80",
+                paymentDefaultAmount(
+                    bill.copy(currency = currency, remaining = "4115.8"),
+                    currency,
+                    false,
+                ),
+            )
+        }
+        assertEquals(
+            "4115",
+            paymentDefaultAmount(bill.copy(currency = "JPY", remaining = "4115.00"), "JPY", false),
+        )
+    }
+
+    @Test
+    fun repaymentDefaultDoesNotInventUnknownZeroOrInvalidAmounts() {
+        listOf(null, "", "0", "0.00", "-1.00", "未知", "4,115.82", "1.234", "1e3", "1000000000000")
+            .forEach { raw ->
+                assertEquals("", paymentDefaultAmount(bill.copy(remaining = raw), "CNY", false))
+            }
+        assertEquals(
+            "",
+            paymentDefaultAmount(bill.copy(currency = "JPY", remaining = "1.50"), "JPY", false),
+        )
+    }
+
+    @Test
+    fun repaymentDefaultDoesNotPrefillPlansOrMismatchedCurrencies() {
+        assertEquals("", paymentDefaultAmount(bill, "CNY", true))
+        assertEquals("", paymentDefaultAmount(null, "CNY", false))
+        assertEquals("", paymentDefaultAmount(bill, "USD", false))
+        assertEquals("", paymentDefaultAmount(bill.copy(currency = "XXX"), "XXX", false))
+    }
+
+    @Test
     fun dueLabelsReflectRealStates() {
         assertEquals(DueLabel("明", "天到期", true), dueLabel(bill))
         assertEquals("今", dueLabel(bill.copy(days = 0)).value)
@@ -90,6 +140,94 @@ class UiRulesTest {
         assertFalse(canWrite(s.copy(statement = bill.copy(status = "draft"))))
         assertFalse(canWrite(s.copy(statement = bill.copy(account = account.copy(active = false)))))
         assertFalse(canWrite(s.copy(pending = Pending("scope", "key", "path", "{}", "pending"))))
+    }
+
+    private fun homeState(row: Statement = bill): UiState =
+        UiState(
+            connection = Connection("https://example.invalid", "test", "2026-12-01T00:00:00+08:00"),
+            busy = false,
+            home = Overview(emptyList(), listOf(row), emptyList(), emptyList(), 0, "", "2026-10-15"),
+        )
+
+    @Test
+    fun homeShortcutOnlyShowsForKnownPositiveUnpaidBalances() {
+        assertTrue(hasRepayableBalance(bill))
+        assertTrue(hasRepayableBalance(bill.copy(paymentStatus = "partial", remaining = "0.01")))
+        listOf("settled", "overpaid", "unknown").forEach {
+            assertFalse(hasRepayableBalance(bill.copy(paymentStatus = it)))
+        }
+        listOf(null, "0", "0.00", "-1.00", "invalid").forEach {
+            assertFalse(hasRepayableBalance(bill.copy(remaining = it)))
+        }
+        listOf("draft", "void").forEach { assertFalse(hasRepayableBalance(bill.copy(status = it))) }
+    }
+
+    @Test
+    fun homeShortcutBlocksCachedBusyPendingInactiveAndOtherScreens() {
+        val s = homeState()
+        assertTrue(canRecordHomePayment(s, bill))
+        assertFalse(canRecordHomePayment(s.copy(connection = null), bill))
+        assertFalse(canRecordHomePayment(s.copy(cached = true), bill))
+        assertFalse(canRecordHomePayment(s.copy(busy = true), bill))
+        assertFalse(
+            canRecordHomePayment(
+                s.copy(pending = Pending("scope", "key", "path", "{}", "pending")),
+                bill,
+            )
+        )
+        assertFalse(canRecordHomePayment(s.copy(screen = "details"), bill))
+        assertFalse(canRecordHomePayment(s.copy(screen = "detail"), bill))
+        val inactive = bill.copy(account = account.copy(active = false))
+        assertFalse(canRecordHomePayment(homeState(inactive), inactive))
+        assertTrue(canRecordHomePayment(s.copy(amountsHidden = true), bill))
+    }
+
+    @Test
+    fun homeShortcutTargetsItsOwnBillIncludingHistoricalBills() {
+        val s = homeState().copy(statement = bill.copy(id = "another", currency = "USD"))
+        assertEquals(bill, homePaymentTarget(s, bill))
+        val history = bill.copy(id = "old", date = "2026-09-09", paymentStatus = "partial")
+        val historicalState =
+            s.copy(home = s.home!!.copy(latest = emptyList(), historical = listOf(history)))
+        assertEquals(history, homePaymentTarget(historicalState, history))
+        assertNull(homePaymentTarget(historicalState, bill))
+    }
+
+    @Test
+    fun homeShortcutRejectsMissingChangedAndAmbiguousSnapshots() {
+        val s = homeState()
+        assertNull(homePaymentTarget(s.copy(home = null), bill))
+        listOf(
+                bill.copy(id = "other"),
+                bill.copy(version = 2),
+                bill.copy(currency = "USD"),
+                bill.copy(remaining = "50.00"),
+                bill.copy(account = account.copy(id = "other")),
+            )
+            .forEach { assertNull(homePaymentTarget(homeState(it), bill)) }
+        assertNull(homePaymentTarget(s.copy(home = s.home!!.copy(historical = listOf(bill))), bill))
+    }
+
+    @Test
+    fun freshRepaymentSummaryMustKeepIdentityVersionBalanceAndCurrency() {
+        assertTrue(sameHomePaymentBill(bill, bill))
+        assertTrue(sameHomePaymentBill(bill, bill.copy(days = 0, overdue = false)))
+        listOf(
+                bill.copy(id = "other"),
+                bill.copy(account = account.copy(id = "other")),
+                bill.copy(account = account.copy(active = false)),
+                bill.copy(version = 2),
+                bill.copy(currency = "USD"),
+                bill.copy(status = "void"),
+                bill.copy(date = "2026-09-09"),
+                bill.copy(amount = "200.00"),
+                bill.copy(remaining = "90.00"),
+                bill.copy(paid = "10.00"),
+                bill.copy(paymentStatus = "settled"),
+                bill.copy(paymentStatus = "partial"),
+                bill.copy(remaining = null),
+            )
+            .forEach { assertFalse(sameHomePaymentBill(bill, it)) }
     }
 
     @Test

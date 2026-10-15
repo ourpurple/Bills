@@ -405,9 +405,29 @@ class BillsViewModel(application: Application) : AndroidViewModel(application) {
             it.copy(message = "服务端已确认记录；仅为用户标记，不代表银行到账。计划不减少待还，也尚无通知投递。", cached = true)
         }
         try {
-            if (id != null) loadDetail(id)
-            val h = repo.read("/api/v1/app/overview", Json::overview)
-            mutable.update { it.copy(home = h.data, cached = it.cached || h.cached) }
+            if (mutable.value.screen == "home") {
+                // A home shortcut must refresh home, not another bill retained in detail state.
+                // Invalidate retained months/records so switching tabs cannot show stale balances.
+                mutable.update {
+                    it.copy(
+                        history = null,
+                        historyAccountId = null,
+                        statement = null,
+                        expandedStatementId = null,
+                        transactions = null,
+                        transactionsIncomplete = false,
+                        repayments = null,
+                        plans = null,
+                        historyCached = true,
+                        historyAt = null,
+                    )
+                }
+                syncHome()
+            } else {
+                if (id != null) loadDetail(id)
+                val h = repo.read("/api/v1/app/overview", Json::overview)
+                mutable.update { it.copy(home = h.data, cached = it.cached || h.cached) }
+            }
         } catch (e: Exception) {
             if (repo.session == null) failure(e)
             else
@@ -421,6 +441,32 @@ class BillsViewModel(application: Application) : AndroidViewModel(application) {
         check(!mutable.value.cached) { "缓存只读，请先联网刷新" }
         val s = mutable.value.statement ?: return@task
         require(s.status == "confirmed" && s.account.active) { "待确认、已作废或停用账户请到后台处理" }
+        submitPayment(s, plan, amount, time, note)
+    }
+
+    fun homePayment(selected: Statement, amount: String, time: String, note: String) = task {
+        val target =
+            requireNotNull(homePaymentTarget(mutable.value, selected)) {
+                "账单已变化或当前只读，请刷新后重新记录；有待核对提交时不能新建记录"
+            }
+        // Never stage a write based solely on a cached/old overview or a different selected bill.
+        val summary =
+            repo.read("/api/v1/app/statements/${target.id}/summary") {
+                Json.statement(JSONObject(it))
+            }
+        observed(summary)
+        require(!summary.cached) { "缓存只读，请联网刷新后再记录还款" }
+        require(sameHomePaymentBill(target, summary.data)) { "账单金额或状态已变化，请刷新后重新记录" }
+        submitPayment(summary.data, false, amount, time, note)
+    }
+
+    private suspend fun submitPayment(
+        s: Statement,
+        plan: Boolean,
+        amount: String,
+        time: String,
+        note: String,
+    ) {
         require(note.length <= 500) { "备注最多500字" }
         val body =
             JSONObject()

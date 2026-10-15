@@ -5,15 +5,21 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -25,6 +31,7 @@ internal fun LazyListScope.homeContent(
     bank: String,
     holder: String,
     mode: String,
+    recordPayment: (Statement) -> Unit,
 ) {
     val h = s.home
     if (h == null) {
@@ -95,7 +102,7 @@ internal fun LazyListScope.homeContent(
                     .thenBy { it.due ?: "9999" }
                     .thenByDescending { it.date }
             )
-    items(rows, key = { "bill-${it.id}" }) { row -> StatementRow(row, s, actions) }
+    items(rows, key = { "bill-${it.id}" }) { row -> StatementRow(row, s, actions, recordPayment) }
     val missing =
         if (mode == "current")
             s.accounts?.items.orEmpty().filter { a ->
@@ -151,7 +158,12 @@ internal fun AccountIdentity(account: Account, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun StatementRow(row: Statement, s: UiState, actions: UiActions) {
+private fun StatementRow(
+    row: Statement,
+    s: UiState,
+    actions: UiActions,
+    recordPayment: (Statement) -> Unit,
+) {
     var menu by remember { mutableStateOf(false) }
     Column(
         Modifier.fillMaxWidth()
@@ -184,25 +196,39 @@ private fun StatementRow(row: Statement, s: UiState, actions: UiActions) {
             }
         }
         Spacer(Modifier.height(6.dp))
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Column(Modifier.weight(1.05f)) {
-                Text(
-                    displayAmount(row.remaining, row.currency, s.amountsHidden),
-                    fontSize = 19.sp,
-                    color = if (row.remaining == null) Muted else Ink,
-                )
-                Text(
-                    "${if(row.remaining==null) "待更新 · " else ""}本期待还 · ${row.currency}",
-                    color = Muted,
-                    fontSize = 11.sp,
-                )
-                if (row.paymentStatus == "partial") Text("已标记部分还款", fontSize = 10.sp, color = Blue)
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val largeFont = LocalDensity.current.fontScale > 1.2f
+            val compactDue = maxWidth < 340.dp
+            // Keep the caption beside the number even when accessibility text needs more room.
+            if (maxWidth < 280.dp || largeFont) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    StatementBalance(row, s.amountsHidden)
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        DueStatus(row, Modifier.weight(1f), compactDue)
+                        if (hasRepayableBalance(row))
+                            HomeRepaymentButton(row, canRecordHomePayment(s, row)) {
+                                recordPayment(row)
+                            }
+                    }
+                }
+            } else {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    StatementBalance(row, s.amountsHidden, Modifier.weight(1.05f))
+                    DueStatus(row, Modifier.weight(1.2f), compactDue)
+                    if (hasRepayableBalance(row))
+                        HomeRepaymentButton(row, canRecordHomePayment(s, row)) {
+                            recordPayment(row)
+                        }
+                }
             }
-            DueStatus(row, Modifier.weight(1f))
         }
         if (!row.account.active)
             Text(
@@ -216,18 +242,110 @@ private fun StatementRow(row: Statement, s: UiState, actions: UiActions) {
 }
 
 @Composable
-private fun DueStatus(row: Statement, modifier: Modifier) {
+private fun StatementBalance(
+    row: Statement,
+    amountsHidden: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier) {
+        Text(
+            displayAmount(row.remaining, row.currency, amountsHidden),
+            fontSize = 19.sp,
+            color = if (row.remaining == null) Muted else Ink,
+        )
+        Text(
+            "${if(row.remaining==null) "待更新 · " else ""}本期待还 · ${row.currency}",
+            color = Muted,
+            fontSize = 11.sp,
+        )
+        if (row.paymentStatus == "partial") Text("已标记部分还款", fontSize = 10.sp, color = Blue)
+    }
+}
+
+@Composable
+private fun HomeRepaymentButton(row: Statement, enabled: Boolean, onClick: () -> Unit) {
+    // A flatter face without shrinking the explicit 48dp touch target.
+    Box(
+        Modifier.widthIn(min = 60.dp)
+            .heightIn(min = 48.dp)
+            .clickable(
+                enabled = enabled,
+                role = Role.Button,
+                onClickLabel = "记录还款",
+                onClick = onClick,
+            )
+            .testTag("home-pay-${row.id}"),
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            modifier = Modifier.heightIn(min = 36.dp).testTag("home-pay-face-${row.id}"),
+            shape = RoundedCornerShape(12.dp),
+            color =
+                if (enabled) Yellow else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+            contentColor =
+                if (enabled) Ink else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+        ) {
+            Box(
+                Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("还款", fontSize = 13.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun DueStatus(row: Statement, modifier: Modifier, compact: Boolean = false) {
     val due = dueLabel(row)
     val color = if (due.urgent) Coral else Ink
+    val valueSize = if (compact) 26.sp else 30.sp
+    val captionSize = if (compact) 11.sp else 12.sp
+    val captionLineHeight = if (compact) 12.sp else 13.sp
+    // Do not inherit bodyLarge's 24sp line height for these small labels.
+    val tightTextStyle =
+        TextStyle(
+            platformStyle = PlatformTextStyle(includeFontPadding = false),
+            lineHeightStyle =
+                LineHeightStyle(
+                    alignment = LineHeightStyle.Alignment.Center,
+                    trim = LineHeightStyle.Trim.None,
+                ),
+        )
     Row(
-        modifier,
+        modifier.height(IntrinsicSize.Min).testTag("due-status-${row.id}"),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
-        Text(due.value, fontSize = 30.sp, color = color)
-        Column {
-            Text(due.caption, color = color, fontSize = 12.sp)
-            Text(shortDate(row.due), color = Muted, fontSize = 11.sp)
+        Text(
+            due.value,
+            modifier = Modifier.testTag("due-value-${row.id}"),
+            style = tightTextStyle,
+            fontSize = valueSize,
+            lineHeight = valueSize,
+            color = color,
+            maxLines = 1,
+        )
+        Column(
+            Modifier.weight(1f).fillMaxHeight(),
+            verticalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                due.caption,
+                modifier = Modifier.testTag("due-caption-${row.id}"),
+                style = tightTextStyle,
+                color = color,
+                fontSize = captionSize,
+                lineHeight = captionLineHeight,
+            )
+            Text(
+                shortDate(row.due),
+                modifier = Modifier.testTag("due-date-${row.id}"),
+                style = tightTextStyle,
+                color = Muted,
+                fontSize = 11.sp,
+                lineHeight = captionLineHeight,
+            )
         }
     }
 }

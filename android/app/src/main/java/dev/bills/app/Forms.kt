@@ -7,9 +7,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import java.time.ZonedDateTime
 import org.json.JSONObject
 
@@ -51,9 +55,15 @@ internal fun PaymentDialog(
     plan: Boolean,
     busy: Boolean,
     dismiss: () -> Unit,
+    statement: Statement? = null,
+    amountsHidden: Boolean = false,
+    enabled: Boolean = true,
     submit: (String, String, String) -> Unit,
 ) {
-    var amount by remember { mutableStateOf("") }
+    var amount by
+        remember(statement?.id, currency, plan) {
+            mutableStateOf(paymentDefaultAmount(statement, currency, plan))
+        }
     var time by remember {
         mutableStateOf(
             ZonedDateTime.now(Rules.zone).plusDays(if (plan) 1 else 0).format(Rules.dateTime)
@@ -69,25 +79,52 @@ internal fun PaymentDialog(
                 Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                statement?.let { row ->
+                    AccountIdentity(row.account)
+                    Text(
+                        "出账 ${row.date} · ${row.currency}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("待还金额 · ${row.currency}", style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            displayAmount(row.remaining, row.currency, amountsHidden),
+                            modifier = Modifier.testTag("payment-remaining"),
+                            color = Coral,
+                            fontSize = 26.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
                 Text(if (plan) "计划不减少待还金额。通知功能尚未实现，保存后不会安排提醒。" else "请填写实际还款金额与时间，仅作个人标记，不证明银行到账。")
+                if (!enabled && !busy)
+                    Text("当前账单不可记录，请关闭后联网刷新或先核对待确认提交。", color = MaterialTheme.colorScheme.error)
+
                 OutlinedTextField(
                     amount,
                     { amount = it },
+                    modifier = Modifier.fillMaxWidth().testTag("payment-amount"),
                     label = { Text("金额 / $currency") },
+                    visualTransformation =
+                        if (amountsHidden) PasswordVisualTransformation()
+                        else VisualTransformation.None,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     singleLine = true,
+                    enabled = !busy && enabled,
                 )
                 OutlinedTextField(
                     time,
                     { time = it },
                     label = { Text("北京时间 yyyy-MM-dd HH:mm") },
                     singleLine = true,
+                    enabled = !busy && enabled,
                 )
                 OutlinedTextField(
                     note,
                     { note = it.take(500) },
                     label = { Text("备注（可选）") },
                     maxLines = 3,
+                    enabled = !busy && enabled,
                 )
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
@@ -103,7 +140,7 @@ internal fun PaymentDialog(
                         error = e.message
                     }
                 },
-                enabled = !busy,
+                enabled = !busy && enabled,
             ) {
                 Text("在线提交")
             }

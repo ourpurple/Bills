@@ -105,6 +105,15 @@ class ReferenceUiTest {
         )
     private val state = mutableStateOf(base)
 
+    private data class HomePayment(
+        val statement: Statement,
+        val amount: String,
+        val time: String,
+        val note: String,
+    )
+
+    private var homePayment: HomePayment? = null
+
     private fun show(initial: UiState = base, narrow: Boolean = false, largeFont: Boolean = false) {
         state.value = initial
         compose.setContent {
@@ -122,6 +131,9 @@ class ReferenceUiTest {
                                 state.value = state.value.copy(screen = state.value.detailReturn)
                             },
                             hideAmounts = { state.value = state.value.copy(amountsHidden = it) },
+                            homePayment = { target, amount, time, note ->
+                                homePayment = HomePayment(target, amount, time, note)
+                            },
                             section = { state.value = state.value.copy(detailSection = it) },
                             account = { selected ->
                                 val months =
@@ -312,6 +324,295 @@ class ReferenceUiTest {
         compose.onNodeWithTag("bill-s1").assertIsDisplayed()
         compose.onNodeWithTag("bill-old").assertDoesNotExist()
         compose.onNodeWithText("本期账单").assertDoesNotExist()
+    }
+
+    @Test
+    fun homeRepaymentOpensFormForTappedBillAndOnlySubmitsOnConfirmation() {
+        show()
+        compose.onNodeWithTag("home-pay-s0").assertIsDisplayed().assertIsEnabled().performClick()
+        compose.onNodeWithText("记录还款（不执行支付）").assertIsDisplayed()
+        compose.onNodeWithText("出账 2026-10-09 · CNY").assertIsDisplayed()
+        compose.onNodeWithTag("payment-remaining").assertTextEquals("2,680.00").assertIsDisplayed()
+        compose.onNodeWithTag("payment-amount").assertTextContains("2680.00")
+        compose.runOnIdle {
+            assertEquals("home", state.value.screen)
+            assertEquals(
+                "s",
+                state.value.statement?.id,
+            ) // Retained detail is not the tapped s0 bill.
+            assertNull(homePayment)
+        }
+        compose.onNodeWithText("金额 / CNY").performTextReplacement("25.50")
+        compose.onNodeWithText("备注（可选）").performTextInput("测试记录")
+        compose.onNodeWithText("在线提交").performClick()
+        compose.onNodeWithText("记录还款（不执行支付）").assertDoesNotExist()
+        compose.runOnIdle {
+            assertEquals(bills[0], homePayment?.statement)
+            assertEquals("25.50", homePayment?.amount)
+            assertEquals("测试记录", homePayment?.note)
+            assertTrue(homePayment?.time?.isNotBlank() == true)
+            assertEquals("home", state.value.screen)
+        }
+    }
+
+    @Test
+    fun cancelHomeRepaymentDoesNotCreateRecordAndHiddenBalanceStaysHidden() {
+        show(base.copy(amountsHidden = true))
+        compose.onNodeWithTag("home-pay-s0").performClick()
+        compose.onNodeWithTag("payment-remaining").assertTextEquals("••••").assertIsDisplayed()
+        compose
+            .onNodeWithTag("payment-amount")
+            .assert(
+                SemanticsMatcher.keyIsDefined(
+                    androidx.compose.ui.semantics.SemanticsProperties.Password
+                )
+            )
+        compose.onNode(hasText("2680.00", substring = true)).assertDoesNotExist()
+        compose.onNode(hasText("2,680.00", substring = true)).assertDoesNotExist()
+        compose.onNodeWithText("取消").performClick()
+        compose.onNodeWithText("记录还款（不执行支付）").assertDoesNotExist()
+        compose.runOnIdle { assertNull(homePayment) }
+        compose.onNodeWithTag("bill-s0").performClick()
+        compose.onNodeWithTag("screen-details").assertExists()
+    }
+
+    @Test
+    fun partialRepaymentPrefillsRemainingAndSubmitsOnlyAfterConfirmation() {
+        val partial =
+            bills[0].copy(
+                amount = "5000.00",
+                paid = "884.18",
+                remaining = "4115.82",
+                paymentStatus = "partial",
+            )
+        show(base.copy(home = base.home!!.copy(latest = listOf(partial))))
+        compose.onNodeWithTag("home-pay-s0").performClick()
+        compose.onNodeWithTag("payment-remaining").assertTextEquals("4,115.82")
+        compose.onNodeWithTag("payment-amount").assertTextContains("4115.82")
+        compose.runOnIdle { assertNull(homePayment) }
+        compose.onNodeWithText("在线提交").performClick()
+        compose.runOnIdle {
+            assertEquals("4115.82", homePayment?.amount)
+            assertEquals(partial, homePayment?.statement)
+        }
+    }
+
+    @Test
+    fun repaymentEditSurvivesRecompositionAndReopeningUsesCurrentBalance() {
+        show()
+        compose.onNodeWithTag("home-pay-s0").performClick()
+        compose.onNodeWithTag("payment-amount").performTextReplacement("25.50")
+        compose.runOnIdle { state.value = state.value.copy(busy = true) }
+        compose.onNodeWithTag("payment-amount").assertTextContains("25.50").assertIsNotEnabled()
+        compose.runOnIdle { state.value = state.value.copy(busy = false) }
+        compose.onNodeWithTag("payment-amount").assertTextContains("25.50").assertIsEnabled()
+        compose.onNodeWithText("取消").performClick()
+        compose.runOnIdle {
+            state.value =
+                state.value.copy(
+                    home =
+                        base.home!!.copy(
+                            latest =
+                                listOf(
+                                    bills[0].copy(remaining = "123.45", paymentStatus = "partial")
+                                )
+                        )
+                )
+        }
+        compose.onNodeWithTag("home-pay-s0").performClick()
+        compose.onNodeWithTag("payment-amount").assertTextContains("123.45")
+        compose.onNodeWithText("取消").performClick()
+        compose.runOnIdle { assertNull(homePayment) }
+    }
+
+    @Test
+    fun repaymentPrivacyMasksPrefillWithoutDiscardingIt() {
+        show()
+        compose.onNodeWithTag("home-pay-s0").performClick()
+        compose.runOnIdle { state.value = state.value.copy(amountsHidden = true) }
+        compose.onNodeWithTag("payment-remaining").assertTextEquals("••••")
+        compose.onNode(hasText("2680.00", substring = true)).assertDoesNotExist()
+        compose.onNode(hasText("2,680.00", substring = true)).assertDoesNotExist()
+        compose.runOnIdle { state.value = state.value.copy(amountsHidden = false) }
+        compose.onNodeWithTag("payment-amount").assertTextContains("2680.00")
+        compose.onNodeWithText("取消").performClick()
+        compose.runOnIdle { assertNull(homePayment) }
+    }
+
+    @Test
+    fun onlyUnpaidAndPartialBillsOfferHomeRepayment() {
+        val initial = base.copy(home = base.home!!.copy(latest = listOf(bills[0])), accounts = null)
+        show(initial)
+        compose.onNodeWithTag("home-pay-s0").assertIsDisplayed()
+        val row = bills[0]
+        listOf(
+                row.copy(paymentStatus = "settled", remaining = "0.00"),
+                row.copy(paymentStatus = "overpaid", remaining = "0.00"),
+                row.copy(remaining = null),
+                row.copy(remaining = "0.00"),
+                row.copy(status = "void"),
+            )
+            .forEach { changed ->
+                compose.runOnIdle {
+                    state.value = initial.copy(home = initial.home!!.copy(latest = listOf(changed)))
+                }
+                compose.onNodeWithTag("home-pay-s0").assertDoesNotExist()
+            }
+        compose.runOnIdle {
+            state.value =
+                initial.copy(
+                    home = initial.home!!.copy(latest = listOf(row.copy(paymentStatus = "partial")))
+                )
+        }
+        compose.onNodeWithTag("home-pay-s0").assertIsEnabled()
+    }
+
+    @Test
+    fun homeRepaymentIsDisabledInUnsafeStates() {
+        show()
+        val disabled =
+            listOf(
+                base.copy(cached = true),
+                base.copy(busy = true),
+                base.copy(pending = Pending("scope", "key", "path", "{}", "pending")),
+                base.copy(
+                    home =
+                        base.home!!.copy(
+                            latest =
+                                listOf(
+                                    bills[0].copy(account = bills[0].account.copy(active = false))
+                                )
+                        )
+                ),
+            )
+        disabled.forEach { changed ->
+            compose.runOnIdle { state.value = changed }
+            compose.onNodeWithTag("home-pay-s0").assertIsNotEnabled()
+        }
+        compose.runOnIdle { state.value = base }
+        compose.onNodeWithTag("home-pay-s0").assertIsEnabled()
+        compose.runOnIdle { assertNull(homePayment) }
+    }
+
+    @Test
+    fun homeRepaymentFormRejectsInvalidAmountAndStaleBalance() {
+        show()
+        compose.onNodeWithTag("home-pay-s0").performClick()
+        compose.onNodeWithText("金额 / CNY").performTextReplacement("0")
+        compose.onNodeWithText("在线提交").performClick()
+        compose.onNodeWithText("记录还款（不执行支付）").assertExists()
+        compose.runOnIdle { assertNull(homePayment) }
+        compose.onNodeWithText("金额 / CNY").performTextReplacement("25.00")
+        compose.runOnIdle {
+            state.value =
+                base.copy(
+                    home = base.home!!.copy(latest = listOf(bills[0].copy(remaining = "100.00")))
+                )
+        }
+        compose.onNodeWithText("在线提交").assertIsNotEnabled()
+        compose.onNode(hasText("当前账单不可记录", substring = true)).assertExists()
+        compose.runOnIdle { assertNull(homePayment) }
+        compose.onNodeWithText("取消").performClick()
+    }
+
+    private fun assertDueCaptionBesideValue(id: String) {
+        val value =
+            compose
+                .onNodeWithTag("due-value-$id", useUnmergedTree = true)
+                .assertIsDisplayed()
+                .fetchSemanticsNode()
+                .boundsInRoot
+        val caption =
+            compose
+                .onNodeWithTag("due-caption-$id", useUnmergedTree = true)
+                .assertIsDisplayed()
+                .fetchSemanticsNode()
+                .boundsInRoot
+        val date =
+            compose
+                .onNodeWithTag("due-date-$id", useUnmergedTree = true)
+                .assertIsDisplayed()
+                .fetchSemanticsNode()
+                .boundsInRoot
+        assertTrue("到期说明应位于天数右侧", caption.left >= value.right)
+        assertTrue("到期日期应位于天数右侧", date.left >= value.right)
+        assertTrue("日期应位于到期说明下方", date.top >= caption.bottom)
+        val due =
+            compose
+                .onNodeWithTag("due-status-$id", useUnmergedTree = true)
+                .fetchSemanticsNode()
+                .boundsInRoot
+        val pay = compose.onNodeWithTag("home-pay-$id").fetchSemanticsNode().boundsInRoot
+        assertTrue("到期信息不能覆盖还款按钮", due.right <= pay.left)
+    }
+
+    @Test
+    fun homeDueCaptionAndDateStayBesideSeventeenDayValue() {
+        val upcoming = bills[0].copy(days = 17, due = "2026-11-01")
+        show(base.copy(home = base.home!!.copy(latest = listOf(upcoming))))
+        compose.onNodeWithTag("due-value-s0", useUnmergedTree = true).assertTextEquals("17")
+        compose.onNodeWithTag("due-caption-s0", useUnmergedTree = true).assertTextEquals("天后到期")
+        compose.onNodeWithTag("due-date-s0", useUnmergedTree = true).assertTextEquals("11-01")
+        assertDueCaptionBesideValue("s0")
+    }
+
+    @Test
+    fun homeDueLayoutStaysHorizontalOnNarrowScreenAndHandlesOtherStatuses() {
+        val initial = base.copy(home = base.home!!.copy(latest = listOf(bills[0])))
+        show(initial, narrow = true)
+        listOf(
+                bills[0].copy(days = 17, due = "2026-11-01"),
+                bills[0].copy(days = 2, due = "2026-10-17"),
+                bills[0].copy(days = 0),
+                bills[0].copy(days = -2, overdue = true),
+                bills[0].copy(days = null, due = null),
+            )
+            .forEach { changed ->
+                compose.runOnIdle {
+                    state.value = initial.copy(home = initial.home!!.copy(latest = listOf(changed)))
+                }
+                assertDueCaptionBesideValue("s0")
+            }
+    }
+
+    @Test
+    fun flatterRepaymentButtonRetainsFullTouchArea() {
+        show()
+        val button =
+            compose.onNodeWithTag("home-pay-s0").assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+        val face =
+            compose
+                .onNodeWithTag("home-pay-face-s0", useUnmergedTree = true)
+                .assertIsDisplayed()
+                .assertHeightIsEqualTo(36.dp)
+                .fetchSemanticsNode()
+                .boundsInRoot
+        val touch = button.fetchSemanticsNode().boundsInRoot
+        assertTrue("扁平外观应在点击区域内垂直居中", face.top > touch.top && face.bottom < touch.bottom)
+        button.performTouchInput { click(androidx.compose.ui.geometry.Offset(center.x, 1f)) }
+        compose.onNodeWithText("记录还款（不执行支付）").assertExists()
+        compose.runOnIdle { assertNull(homePayment) }
+        compose.onNodeWithText("取消").performClick()
+    }
+
+    @Test
+    fun homeRepaymentButtonRemainsAccessibleOnNarrowScreenWithLargeFont() {
+        val upcoming = bills[0].copy(days = 17, due = "2026-11-01")
+        show(
+            base.copy(home = base.home!!.copy(latest = listOf(upcoming))),
+            narrow = true,
+            largeFont = true,
+        )
+        assertDueCaptionBesideValue("s0")
+        val button = compose.onNodeWithTag("home-pay-s0")
+        button.assertIsDisplayed().assertIsEnabled().assertHeightIsAtLeast(48.dp)
+        val bounds = button.fetchSemanticsNode().boundsInRoot
+        val row = compose.onNodeWithTag("bill-s0").fetchSemanticsNode().boundsInRoot
+        assertTrue(bounds.left >= row.left && bounds.right <= row.right)
+        button.performClick()
+        compose.onNodeWithText("记录还款（不执行支付）").assertExists()
+        compose.onNodeWithText("取消").assertIsDisplayed().performClick()
+        compose.runOnIdle { assertNull(homePayment) }
     }
 
     private fun openHomeBill(id: String) {
@@ -515,9 +816,20 @@ class ReferenceUiTest {
         compose.onNodeWithText("立即还款").assertDoesNotExist()
         snapshot("03-statement")
         compose.onNodeWithTag("mark-payment").performClick()
+        compose.onNodeWithTag("payment-remaining").assertTextEquals("2,680.00")
+        compose.onNodeWithTag("payment-amount").assertTextContains("2680.00")
         compose.onNode(hasText("不证明银行到账", substring = true)).assertExists()
         compose.onNodeWithText("取消").performClick()
         compose.onNodeWithText("计划还款").performClick()
+        compose
+            .onNodeWithTag("payment-amount")
+            .assert(
+                SemanticsMatcher.expectValue(
+                    androidx.compose.ui.semantics.SemanticsProperties.EditableText,
+                    androidx.compose.ui.text.AnnotatedString(""),
+                )
+            )
+        compose.onNode(hasText("2680.00", substring = true)).assertDoesNotExist()
         compose.onNode(hasText("通知功能尚未实现", substring = true)).assertExists()
     }
 

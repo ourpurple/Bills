@@ -44,6 +44,7 @@ internal class UiActions(
     val recordsPage: (Boolean, Int) -> Unit = { _, _ -> },
     val section: (String) -> Unit = {},
     val payment: (Boolean, String, String, String) -> Unit = { _, _, _, _ -> },
+    val homePayment: (Statement, String, String, String) -> Unit = { _, _, _, _ -> },
     val revoke: (Boolean, String, String) -> Unit = { _, _, _ -> },
     val retry: (Boolean) -> Unit = {},
     val cancelException: () -> Unit = {},
@@ -69,6 +70,7 @@ fun BillsApp(model: BillsViewModel) {
                 recordsPage = model::recordsPage,
                 section = model::section,
                 payment = model::payment,
+                homePayment = model::homePayment,
                 revoke = model::revoke,
                 retry = model::retry,
                 cancelException = model::cancelException,
@@ -95,6 +97,7 @@ internal fun BillsSurface(s: UiState, actions: UiActions) {
     var infoOpen by remember { mutableStateOf(false) }
     var detailsMenuOpen by remember(s.screen) { mutableStateOf(false) }
     var paymentForm by rememberSaveable(s.statement?.id) { mutableStateOf<String?>(null) }
+    var homePaymentBill by remember(s.connection, s.screen) { mutableStateOf<Statement?>(null) }
     val nested = s.screen == "detail"
     LaunchedEffect(s.screen, s.selectedAccount?.id) {
         if (s.screen == "details") detailsList.scrollToItem(0)
@@ -301,7 +304,8 @@ internal fun BillsSurface(s: UiState, actions: UiActions) {
                             }
                         }
                         when (s.screen) {
-                            "home" -> homeContent(s, actions, bank, holder, mode)
+                            "home" ->
+                                homeContent(s, actions, bank, holder, mode) { homePaymentBill = it }
                             "details" -> historyContent(s, actions, { accountsOpen = true })
                             "detail" -> statementContent(s, actions)
                             "settings" ->
@@ -332,12 +336,31 @@ internal fun BillsSurface(s: UiState, actions: UiActions) {
                 defaultMode = s.screen == "settings",
             )
         if (infoOpen) s.statement?.let { StatementInfo(it, s.amountsHidden, { infoOpen = false }) }
+        homePaymentBill?.let { row ->
+            PaymentDialog(
+                row.currency,
+                false,
+                s.busy,
+                { homePaymentBill = null },
+                statement = row,
+                amountsHidden = s.amountsHidden,
+                enabled = canRecordHomePayment(s, row),
+            ) { amount, time, note ->
+                actions.homePayment(row, amount, time, note)
+                homePaymentBill = null
+            }
+        }
         paymentForm?.let { kind ->
             s.statement?.let { row ->
-                PaymentDialog(row.currency, kind == "plan", s.busy, { paymentForm = null }) {
-                    amount,
-                    time,
-                    note ->
+                PaymentDialog(
+                    row.currency,
+                    kind == "plan",
+                    s.busy,
+                    { paymentForm = null },
+                    statement = row,
+                    amountsHidden = s.amountsHidden,
+                    enabled = canWrite(s),
+                ) { amount, time, note ->
                     actions.payment(kind == "plan", amount, time, note)
                     paymentForm = null
                 }

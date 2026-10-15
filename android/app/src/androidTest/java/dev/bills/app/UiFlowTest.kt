@@ -49,7 +49,7 @@ class UiFlowTest {
             compose.onAllNodes(hasText("标记已还款") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithTag("mark-payment").performClick()
-        compose.onNodeWithText("金额 / CNY").performTextInput("25")
+        compose.onNodeWithText("金额 / CNY").performTextReplacement("25")
         compose.onNodeWithText("在线提交").performClick()
         compose.waitUntil(30000) {
             compose
@@ -61,7 +61,7 @@ class UiFlowTest {
             compose.onAllNodes(hasText("计划还款") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithText("计划还款").performClick()
-        compose.onNodeWithText("金额 / CNY").performTextInput("40")
+        compose.onNodeWithText("金额 / CNY").performTextReplacement("40")
         compose.onNode(hasText("通知功能尚未实现", substring = true)).assertExists()
         compose.onNodeWithText("在线提交").performClick()
         compose.waitUntil(30000) {
