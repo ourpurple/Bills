@@ -7,7 +7,7 @@ from typing import Literal
 from urllib.parse import unquote
 
 from fastapi import APIRouter, Depends, Header, Query, Request
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import case, func, or_, select, update
 
 from .core import DomainError, utc_naive
 from .mail_classification import suspected_credit_card_bill
@@ -277,12 +277,31 @@ def tasks(
     mailbox_id: str | None = None,
     db=Depends(get_db, scope="function"),
 ):
-    query = select(Task)
+    query = select(Task).where(Task.logs_cleared_at.is_(None))
     if state:
         query = query.where(Task.state == state)
     if mailbox_id:
         query = query.where(Task.mailbox_id == mailbox_id)
     return paginated(db, query.order_by(Task.created_at.desc(), Task.id), task_json, page, page_size)
+
+
+@router.post("/tasks/clear-logs")
+def clear_task_logs(
+    db=Depends(get_db, scope="function"), actor=Depends(administrator, scope="function")
+):
+    # Keep task identities and model-call history: they back recognition results,
+    # cached runs and usage budgets. Only remove terminal logs from the queue UI.
+    result = db.execute(
+        update(Task)
+        .where(
+            Task.state.in_(["succeeded", "failed", "unsupported", "cancelled"]),
+            Task.logs_cleared_at.is_(None),
+        )
+        .values(logs_cleared_at=utc_naive())
+    )
+    cleared = result.rowcount
+    audit(db, actor.id, "task.logs_cleared", "tasks", json.dumps({"cleared": cleared}))
+    return {"cleared": cleared}
 
 
 @router.post("/tasks/{object_id}/retry", status_code=202)
@@ -299,7 +318,13 @@ def retry_task(
 def import_status(request: Request, db=Depends(get_db, scope="function")):
     workers = db.scalars(select(WorkerHeartbeat).order_by(WorkerHeartbeat.seen_at.desc())).all()
     now = utc_naive()
-    states = dict(db.execute(select(Task.state, func.count(Task.id)).group_by(Task.state)).all())
+    states = dict(
+        db.execute(
+            select(Task.state, func.count(Task.id))
+            .where(Task.logs_cleared_at.is_(None))
+            .group_by(Task.state)
+        ).all()
+    )
     return dict(
         stage="P3",
         master_key_configured=bool(request.app.state.settings.master_key),

@@ -17,7 +17,7 @@ def test_online_backup_restore_and_no_overwrite(admin, tmp_path):
     with sqlite3.connect(output) as db:
         assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert db.execute("SELECT count(*) FROM banks").fetchone()[0] == 13
-        assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "c38f14d7a902"
+        assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "d49a25e8b013"
     with pytest.raises(ValueError):
         backup_database(url, output)
     with pytest.raises(ValueError):

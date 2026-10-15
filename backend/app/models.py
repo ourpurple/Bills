@@ -249,6 +249,7 @@ class Task(Identity, Base):
     lease_token: Mapped[str | None] = mapped_column(String(32))
     lease_until: Mapped[datetime | None] = mapped_column(DateTime, index=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+    logs_cleared_at: Mapped[datetime | None] = mapped_column(DateTime)
     error_code: Mapped[str | None] = mapped_column(String(80))
     error_message: Mapped[str | None] = mapped_column(String(300))
     progress: Mapped[int] = mapped_column(Integer, default=0)

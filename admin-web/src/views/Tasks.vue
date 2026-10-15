@@ -15,6 +15,7 @@ interface Job {
   error_code: string | null
   error_message: string | null
   created_at: string
+  finished_at: string | null
   available_at: string
   result: Record<string, unknown>
 }
@@ -45,7 +46,8 @@ const labels: Record<string, string> = {
 const boxes = ref<Mailbox[]>([]),
   jobs = ref<Job[]>([])
 const health = ref<Health | null>(null),
-  loading = ref(false)
+  loading = ref(false),
+  clearing = ref(false)
 const jobState = ref(''),
   jobPage = ref(1),
   jobTotal = ref(0)
@@ -53,6 +55,12 @@ const detail = ref<Job | null>(null),
   detailOpen = ref(false)
 const pendingTotal = computed(() =>
   ['queued', 'running', 'retry_wait'].reduce(
+    (total, state) => total + (health.value?.tasks[state] || 0),
+    0,
+  ),
+)
+const clearableTotal = computed(() =>
+  ['succeeded', 'failed', 'unsupported', 'cancelled'].reduce(
     (total, state) => total + (health.value?.tasks[state] || 0),
     0,
   ),
@@ -78,6 +86,7 @@ const timeoutKinds: Record<string, string> = {
   total: '流式请求总时限',
 }
 let timer: ReturnType<typeof setInterval> | undefined
+let loadSequence = 0
 function label(value: string) {
   return labels[value] || value
 }
@@ -95,6 +104,7 @@ function color(state: string): 'success' | 'warning' | 'danger' | 'info' {
   return 'info'
 }
 async function load(silent = false) {
+  const sequence = ++loadSequence
   if (!silent) loading.value = true
   try {
     const [b, h, j] = await Promise.all([
@@ -102,14 +112,15 @@ async function load(silent = false) {
       api<Health>('/admin/import-status'),
       api<Page<Job>>(`/admin/tasks?page=${jobPage.value}&state=${jobState.value}`),
     ])
+    if (sequence !== loadSequence) return
     boxes.value = b
     health.value = h
     jobs.value = j.items
     jobTotal.value = j.total
   } catch (e) {
-    if (!silent) ElMessage.error((e as Error).message)
+    if (!silent && sequence === loadSequence) ElMessage.error((e as Error).message)
   } finally {
-    loading.value = false
+    if (sequence === loadSequence) loading.value = false
   }
 }
 async function retry(row: Job) {
@@ -125,6 +136,30 @@ async function retry(row: Job) {
     if (e !== 'cancel' && e !== 'close') ElMessage.error((e as Error).message)
   }
 }
+async function clearLogs() {
+  if (clearing.value) return
+  clearing.value = true
+  try {
+    await ElMessageBox.confirm(
+      '将清除所有分页和筛选条件下已完成、失败、待人工处理及已取消任务的列表记录，清除后无法从列表查看详情或重试。排队中、执行中及等待重试的任务不受影响，账单、来源资料和模型调用记录会保留。是否继续？',
+      '清除任务日志',
+      { type: 'warning', confirmButtonText: '确认清除', cancelButtonText: '取消' },
+    )
+    // Ignore any refresh that started before the clear request.
+    ++loadSequence
+    const result = await api<{ cleared: number }>('/admin/tasks/clear-logs', 'POST')
+    detailOpen.value = false
+    detail.value = null
+    jobPage.value = 1
+    await load()
+    if (result.cleared) ElMessage.success(`已清除 ${result.cleared} 条任务日志`)
+    else ElMessage.info('暂无可清除的任务日志')
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close') ElMessage.error((e as Error).message)
+  } finally {
+    clearing.value = false
+  }
+}
 function showJob(row: Job) {
   detail.value = row
   detailOpen.value = true
@@ -136,7 +171,7 @@ function changeJobFilter() {
 onMounted(() => {
   void load()
   timer = setInterval(() => {
-    void load(true)
+    if (!clearing.value) void load(true)
   }, 5000)
 })
 onUnmounted(() => {
@@ -150,7 +185,7 @@ onUnmounted(() => {
       <h1>所有任务，统一查看。</h1>
       <p>集中管理邮箱同步、资料转换与模型识别等系统后台任务，查看进度、失败原因并重试。</p>
     </div>
-    <el-button :loading="loading" @click="load(false)">刷新状态</el-button>
+    <el-button :loading="loading" :disabled="clearing" @click="load(false)">刷新状态</el-button>
   </div>
   <div class="import-health">
     <section class="panel import-stat">
@@ -179,14 +214,26 @@ onUnmounted(() => {
     title="后台任务由独立 worker 执行；只启动网页和 API 不会处理任务。"
   />
   <section class="panel padded section-gap" v-loading="loading">
-    <div class="section-heading">
+    <div class="section-heading task-queue-heading">
       <div>
         <h2>任务队列</h2>
         <p>跨模块统一管理，不局限于邮件中心。</p>
       </div>
+      <el-button
+        type="danger"
+        plain
+        :loading="clearing"
+        :disabled="loading || !clearableTotal"
+        @click="clearLogs"
+        >清除任务日志</el-button
+      >
     </div>
     <div class="filter-bar import-filters">
-      <el-select v-model="jobState" aria-label="任务状态筛选" @change="changeJobFilter"
+      <el-select
+        v-model="jobState"
+        :disabled="clearing"
+        aria-label="任务状态筛选"
+        @change="changeJobFilter"
         ><el-option label="全部状态" value="" /><el-option
           v-for="value in [
             'queued',
@@ -200,9 +247,14 @@ onUnmounted(() => {
           :key="value"
           :label="label(value)"
           :value="value" /></el-select
-      ><span class="muted">系统全部后台任务 · 每 5 秒刷新 · 失败记录保留</span>
+      ><span class="muted">系统全部后台任务 · 每 5 秒刷新 · 可清除已结束任务日志</span>
     </div>
     <el-table :data="jobs" empty-text="尚无任务"
+      ><el-table-column label="时间" width="220"
+        ><template #default="{ row }"
+          ><span>创建：{{ dateTime(row.created_at) }}</span>
+          <p class="muted">结束：{{ dateTime(row.finished_at) }}</p></template
+        ></el-table-column
       ><el-table-column label="任务" min-width="165"
         ><template #default="{ row }"
           ><strong>{{ label(row.kind) }}</strong>
@@ -238,6 +290,7 @@ onUnmounted(() => {
       class="pagination"
       v-model:current-page="jobPage"
       :total="jobTotal"
+      :disabled="clearing"
       :page-size="20"
       layout="prev,pager,next"
       @current-change="load(false)"
@@ -247,6 +300,7 @@ onUnmounted(() => {
     ><template v-if="detail"
       ><p>{{ label(detail.kind) }} · {{ label(detail.state) }}</p>
       <p>创建时间：{{ dateTime(detail.created_at) }}</p>
+      <p>结束时间：{{ dateTime(detail.finished_at) }}</p>
       <p>下次可执行：{{ dateTime(detail.available_at) }}</p>
       <p class="import-error">{{ detail.error_code }} {{ detail.error_message }}</p>
       <el-descriptions v-if="diagnostic" title="失败诊断" :column="1" border>
@@ -291,3 +345,12 @@ onUnmounted(() => {
     </template></el-dialog
   >
 </template>
+
+<style scoped>
+@media (max-width: 600px) {
+  .task-queue-heading {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+</style>

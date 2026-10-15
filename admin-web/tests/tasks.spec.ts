@@ -1,13 +1,13 @@
 import { test, expect } from '@playwright/test'
 
-test('system task queue: global navigation, mixed tasks, pagination, details, retry and narrow layout', async ({
+test('system task queue: global navigation, mixed tasks, pagination, details, retry, clear logs and narrow layout', async ({
   page,
 }) => {
   const kinds = ['mail_sync', 'prepare_input', 'llm_parse', 'llm_test']
   const tasks = Array.from({ length: 21 }, (_, index) => ({
     id: `task-${index}`,
     kind: kinds[index % kinds.length],
-    state: index === 2 ? 'failed' : 'succeeded',
+    state: index === 20 ? 'queued' : index === 2 ? 'failed' : 'succeeded',
     mailbox_id: index === 0 ? 'queue-mailbox' : null,
     source_id: [1, 2].includes(index) ? `source-${index}` : null,
     attempts: 1,
@@ -16,6 +16,7 @@ test('system task queue: global navigation, mixed tasks, pagination, details, re
     error_code: index === 2 ? 'MODEL_TEST_FAILURE' : null,
     error_message: index === 2 ? '合成模型失败记录' : null,
     created_at: '2026-10-12T06:34:00Z',
+    finished_at: index === 20 ? null : '2026-10-12T06:35:00Z',
     available_at: '2026-10-12T06:34:00Z',
     result: (index === 2
       ? {
@@ -32,6 +33,8 @@ test('system task queue: global navigation, mixed tasks, pagination, details, re
       : { synthetic: true }) as Record<string, unknown>,
   }))
   let retried = false
+  let clearRequests = 0
+  let failClear = true
   const queries: string[] = []
   await page.route('**/api/v1/admin/mailboxes?*', (route) =>
     route.fulfill({
@@ -71,7 +74,12 @@ test('system task queue: global navigation, mixed tasks, pagination, details, re
         worker_online: true,
         last_heartbeat: '2026-10-12T06:34:00Z',
         ready_sources: 1,
-        tasks: { succeeded: 20, failed: 1 },
+        tasks: Object.fromEntries(
+          ['succeeded', 'failed', 'queued'].map((state) => [
+            state,
+            tasks.filter((task) => task.state === state).length,
+          ]),
+        ),
       },
     }),
   )
@@ -87,6 +95,16 @@ test('system task queue: global navigation, mixed tasks, pagination, details, re
     return route.fulfill({
       json: { items: rows.slice((number - 1) * 20, number * 20), total: rows.length },
     })
+  })
+  await page.route('**/api/v1/admin/tasks/clear-logs', (route) => {
+    expect(route.request().method()).toBe('POST')
+    clearRequests++
+    if (failClear)
+      return route.fulfill({ status: 500, json: { error: { message: '清除失败，请稍后重试' } } })
+    const active = tasks.filter((task) => ['queued', 'running', 'retry_wait'].includes(task.state))
+    const cleared = tasks.length - active.length
+    tasks.splice(0, tasks.length, ...active)
+    return route.fulfill({ json: { cleared } })
   })
   await page.route('**/api/v1/admin/tasks/task-2/retry', (route) => {
     retried = route.request().method() === 'POST'
@@ -106,19 +124,25 @@ test('system task queue: global navigation, mixed tasks, pagination, details, re
   await expect(page.locator('.topbar')).toContainText('任务队列')
   const rows = page.locator('.el-table__body-wrapper tbody tr')
   await expect(rows).toHaveCount(20)
+  await expect(page.getByRole('columnheader', { name: '时间', exact: true })).toBeVisible()
+  await expect(rows.first()).toContainText('创建：2026年10月12日 14:34')
+  await expect(rows.first()).toContainText('结束：2026年10月12日 14:35')
   await expect(rows.first()).toContainText('合成任务邮箱')
   await expect(rows.nth(1)).toContainText('通用资料转换')
   await expect(rows.nth(2)).toContainText('大模型识别')
   await expect(rows.nth(3)).toContainText('模型配置')
   await expect(rows.nth(3)).not.toContainText('手工上传')
+  await page.screenshot({ path: test.info().outputPath('task-queue-desktop.png'), fullPage: true })
   await page.locator('.el-pagination .number').filter({ hasText: /^2$/ }).click()
   await expect(rows).toHaveCount(1)
+  await expect(rows.first()).toContainText('结束：—')
   await page.locator('.import-filters .el-select').click({ timeout: 8000 })
   await page.getByRole('option', { name: '失败', exact: true }).click({ timeout: 8000 })
   await expect(rows.first()).toContainText('合成模型失败记录')
   expect(queries.at(-1)).toBe('?page=1&state=failed')
   await rows.first().getByRole('button', { name: '详情', exact: true }).click()
   const detail = page.getByRole('dialog', { name: '任务详情' })
+  await expect(detail).toContainText('结束时间：2026年10月12日 14:35')
   await expect(detail).toContainText('MODEL_TEST_FAILURE')
   await expect(detail).toContainText('接收模型响应内容')
   await expect(detail).toContainText('HTTP 状态码')
@@ -138,10 +162,50 @@ test('system task queue: global navigation, mixed tasks, pagination, details, re
   await page.locator('.el-message-box').getByRole('button', { name: '确定', exact: true }).click()
   await expect(page.getByText('重试已排队', { exact: true })).toBeVisible()
   expect(retried).toBe(true)
+  await expect(page.locator('.el-message-box')).toBeHidden()
   await expect(rows.first()).toContainText('合成模型失败记录')
   await page.setViewportSize({ width: 390, height: 844 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(
     false,
   )
   await expect(page.getByRole('link', { name: '任务队列' })).toBeVisible()
+  const clearButton = page.getByRole('button', { name: '清除任务日志', exact: true })
+  await expect(clearButton).toBeVisible()
+  await page.locator('.el-table .el-scrollbar__wrap').evaluate((element) => {
+    element.scrollLeft = 0
+  })
+  await page.screenshot({ path: test.info().outputPath('task-queue-mobile.png'), fullPage: true })
+  await clearButton.click()
+  const confirmation = page.locator('.el-message-box')
+  await expect(confirmation).toContainText('所有分页和筛选条件')
+  await expect(confirmation).toContainText('排队中、执行中及等待重试的任务不受影响')
+  await confirmation.getByRole('button', { name: '取消', exact: true }).click()
+  expect(clearRequests).toBe(0)
+  await expect(rows.first()).toContainText('合成模型失败记录')
+
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.locator('.import-filters .el-select').click()
+  await page.getByRole('option', { name: '全部状态', exact: true }).click()
+  await page.locator('.el-pagination .number').filter({ hasText: /^2$/ }).click()
+  await expect(rows).toHaveCount(1)
+  await clearButton.click()
+  await confirmation.getByRole('button', { name: '确认清除', exact: true }).click()
+  await expect(page.getByText('清除失败，请稍后重试', { exact: true })).toBeVisible()
+  expect(clearRequests).toBe(1)
+  await expect(clearButton).toBeEnabled()
+  expect(tasks).toHaveLength(21)
+
+  failClear = false
+  await clearButton.click()
+  await confirmation.getByRole('button', { name: '确认清除', exact: true }).click()
+  await expect(page.getByText('已清除 20 条任务日志', { exact: true })).toBeVisible()
+  expect(clearRequests).toBe(2)
+  await expect(rows).toHaveCount(1)
+  await expect(rows.first()).toContainText('排队中')
+  await expect(clearButton).toBeDisabled()
+  expect(queries.at(-1)).toBe('?page=1&state=')
+  await expect(page.locator('.import-stat').nth(1).locator('h2')).toContainText('1')
+  await expect(page.locator('.import-stat').nth(2).locator('h2')).toContainText('0')
+  await page.getByRole('button', { name: '刷新状态', exact: true }).click()
+  await expect(rows).toHaveCount(1)
 })
