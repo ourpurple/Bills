@@ -442,6 +442,23 @@ test('card chips open read-only details with empty, disabled, zero-limit and mob
       .locator('dl > div')
       .filter({ has: page.locator('dt').filter({ hasText: new RegExp(`^${name}$`) }) })
       .locator('dd')
+  async function expectTwoColumnLayout() {
+    const cells = await details.locator('.card-detail-list > div').evaluateAll((elements) =>
+      elements.map((element) => {
+        const rect = element.getBoundingClientRect()
+        return { x: rect.x, y: rect.y, right: rect.right, width: rect.width }
+      }),
+    )
+    expect(cells).toHaveLength(7)
+    for (let index = 0; index < 6; index += 2) {
+      expect(Math.abs(cells[index].y - cells[index + 1].y)).toBeLessThan(1)
+      expect(cells[index + 1].x).toBeGreaterThan(cells[index].right)
+      expect(Math.abs(cells[index].width - cells[index + 1].width)).toBeLessThan(1)
+    }
+    expect(cells[6].x).toBe(cells[0].x)
+    expect(Math.abs(cells[6].right - cells[1].right)).toBeLessThan(1)
+    expect(cells[6].y).toBeGreaterThan(cells[5].y)
+  }
   let mutations = 0
   page.on('request', (request) => {
     if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(request.method())) mutations++
@@ -449,8 +466,9 @@ test('card chips open read-only details with empty, disabled, zero-limit and mob
   await tile.getByRole('button', { name: '待删除银行卡 · 4321', exact: true }).focus()
   await page.keyboard.press('Enter')
   await expect(details).toBeVisible()
-  await expect(field('卡片尾号')).toHaveText('4321')
-  await expect(field('所属账户')).toHaveText(account.name)
+  await expect(details.locator('.card-detail-identity')).toHaveText(/^待删除银行卡\s*· 4321$/)
+  await expect(details.getByLabel('卡片尾号 4321', { exact: true })).toBeVisible()
+  await expect(details.locator('dt').filter({ hasText: /^(卡片尾号|所属账户)$/ })).toHaveCount(0)
   await expect(field('银行')).toHaveText('招商银行')
   await expect(field('持卡人')).toHaveText('只读卡片详情测试')
   await expect(field('还款模式')).toHaveText('独立还款')
@@ -458,6 +476,7 @@ test('card chips open read-only details with empty, disabled, zero-limit and mob
   await expect(field('年费收取日期')).toHaveText('未设置')
   await expect(field('年费优惠信息')).toHaveText('未填写')
   await expect(field('预计出账日')).toHaveText('未设置')
+  await expectTwoColumnLayout()
   await expect(
     details.locator('input, textarea, form, [role="switch"], [contenteditable="true"]'),
   ).toHaveCount(0)
@@ -512,6 +531,7 @@ test('card chips open read-only details with empty, disabled, zero-limit and mob
     expect(bounds.y).toBeGreaterThanOrEqual(0)
     expect(bounds.y + bounds.height).toBeLessThanOrEqual(844)
     expect(await detailPanel.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+    await expectTwoColumnLayout()
     await expect(details.getByRole('button', { name: /编辑|删除|保存|添加/ })).toHaveCount(0)
     await details.getByRole('button', { name: '关闭', exact: true }).scrollIntoViewIfNeeded()
     const headerBounds = (await details.locator('.el-dialog__header').boundingBox())!

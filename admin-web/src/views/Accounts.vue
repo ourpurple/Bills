@@ -329,20 +329,17 @@ onMounted(load)
   >
     <template v-if="selectedCard && selectedAccount">
       <div class="card-detail-heading">
-        <h2>{{ selectedCard.name }}</h2>
+        <div class="card-detail-identity">
+          <h2>{{ selectedCard.name }}</h2>
+          <span class="card-detail-tail" :aria-label="`卡片尾号 ${selectedCard.last_four}`"
+            >· {{ selectedCard.last_four }}</span
+          >
+        </div>
         <el-tag :type="selectedCard.active ? 'success' : 'info'" size="small">
           {{ selectedCard.active ? '有效' : '已停用' }}
         </el-tag>
       </div>
       <dl class="card-detail-list">
-        <div>
-          <dt>卡片尾号</dt>
-          <dd>{{ selectedCard.last_four }}</dd>
-        </div>
-        <div>
-          <dt>所属账户</dt>
-          <dd>{{ selectedAccount.name }}</dd>
-        </div>
         <div>
           <dt>银行</dt>
           <dd>{{ selectedAccount.bank_name }}</dd>
@@ -365,7 +362,7 @@ onMounted(load)
         </div>
         <div>
           <dt>额度</dt>
-          <dd>
+          <dd class="card-detail-limit" :class="{ 'is-empty': selectedCard.credit_limit == null }">
             {{
               selectedCard.credit_limit == null ? '未设置' : amountText(selectedCard.credit_limit)
             }}
@@ -383,7 +380,9 @@ onMounted(load)
         </div>
         <div class="card-detail-benefits">
           <dt>年费优惠信息</dt>
-          <dd>{{ selectedCard.annual_fee_benefits || '未填写' }}</dd>
+          <dd :class="{ 'is-empty': !selectedCard.annual_fee_benefits }">
+            {{ selectedCard.annual_fee_benefits || '未填写' }}
+          </dd>
         </div>
       </dl>
     </template>
@@ -543,6 +542,9 @@ onMounted(load)
   flex-direction: column;
   max-height: 90dvh;
   margin-block: 5vh;
+  padding: 24px;
+  border: 1px solid #e4e9df;
+  border-radius: 16px;
 }
 :global(.card-details-dialog .el-dialog__header),
 :global(.card-details-dialog .el-dialog__footer) {
@@ -555,42 +557,101 @@ onMounted(load)
 .card-detail-heading {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 4px 0 8px;
+  padding: 18px;
+  border: 1px solid #e2e9df;
+  border-left: 3px solid var(--el-color-primary);
+  border-radius: 10px;
+  background: #f2f6ef;
+}
+.card-detail-identity {
+  display: flex;
+  align-items: baseline;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 20px;
+  gap: 4px 10px;
+  min-width: 0;
 }
 .card-detail-heading h2 {
   margin: 0;
   color: var(--el-text-color-primary);
-  font-size: 20px;
+  font-size: 22px;
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
+.card-detail-tail {
+  color: #6c7e71;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.card-detail-heading .el-tag {
+  flex-shrink: 0;
+}
 .card-detail-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 24px;
   margin: 0;
 }
 .card-detail-list > div {
-  display: grid;
-  grid-template-columns: 100px minmax(0, 1fr);
-  gap: 12px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--el-border-color-lighter);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 16px 0;
+  border-bottom: 1px solid #e9ede5;
   line-height: 1.7;
 }
 .card-detail-list dt {
-  color: var(--el-text-color-secondary);
+  color: #7b877e;
+  font-size: 12px;
 }
 .card-detail-list dd {
   margin: 0;
   color: var(--el-text-color-primary);
+  font-size: 14px;
+  font-weight: 500;
   overflow-wrap: anywhere;
 }
+.card-detail-list .card-detail-limit {
+  color: var(--el-color-primary);
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+.card-detail-list .is-empty {
+  color: #8a938b;
+  font-size: 14px;
+  font-weight: 400;
+}
 .card-detail-list > .card-detail-benefits {
-  grid-template-columns: minmax(0, 1fr);
-  gap: 6px;
-  border-bottom: 0;
+  grid-column: 1 / -1;
+  gap: 8px;
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid #e9e7dc;
+  border-radius: 10px;
+  background: #faf9f4;
 }
 .card-detail-benefits dd {
   white-space: pre-wrap;
+  line-height: 1.9;
+  font-weight: 400;
+}
+@media (max-width: 420px) {
+  :global(.card-details-dialog) {
+    padding: 18px;
+  }
+  .card-detail-heading {
+    padding: 14px 12px;
+  }
+  .card-detail-heading h2 {
+    font-size: 20px;
+  }
+  .card-detail-list {
+    column-gap: 18px;
+  }
 }
 .card-management {
   margin-top: 20px;
