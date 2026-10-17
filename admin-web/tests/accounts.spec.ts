@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Page, type Locator } from '@playwright/test'
 
 async function setup(page: Page, name: string, history = false) {
   await page.goto('/login')
@@ -43,6 +43,13 @@ async function setup(page: Page, name: string, history = false) {
     .filter({ has: page.getByRole('heading', { name, exact: true }) })
   await expect(tile).toBeVisible()
   return { tile, account, card, statement, headers }
+}
+
+async function openCardEditor(page: Page, tile: Locator, cardName = '待删除银行卡') {
+  await tile.getByRole('button', { name: '编辑', exact: true }).click()
+  const accountEditor = page.getByRole('dialog', { name: '编辑还款账户', exact: true })
+  await accountEditor.getByRole('button', { name: `编辑卡片 ${cardName}`, exact: true }).click()
+  await expect(page.getByRole('dialog', { name: '编辑卡片', exact: true })).toBeVisible()
 }
 
 test('delete account: cancel, confirmation, children removed and persistence on refresh', async ({
@@ -100,7 +107,7 @@ test('delete bank card preserves history and account with history cannot be dele
   page,
 }, testInfo) => {
   const { tile, account, card, statement } = await setup(page, '删除卡片历史保护测试', true)
-  await tile.getByRole('button', { name: '待删除银行卡 · 4321', exact: true }).click()
+  await openCardEditor(page, tile)
   const editor = page.getByRole('dialog', { name: '编辑卡片', exact: true })
   await editor.getByRole('button', { name: '删除卡片', exact: true }).click()
   const confirmation = page.locator('.el-message-box')
@@ -265,9 +272,10 @@ test('compact account rows align on desktop and fit narrow screens', async ({ pa
   await expect(accountEditor.locator('input').first()).toHaveValue('臻享白')
   await accountEditor.getByRole('button', { name: '取消', exact: true }).click()
   await rows.first().getByRole('button', { name: '广发臻享白 · 9759', exact: true }).click()
-  const cardEditor = page.getByRole('dialog', { name: '编辑卡片', exact: true })
-  await expect(cardEditor.locator('input').first()).toHaveValue('广发臻享白')
-  await cardEditor.getByRole('button', { name: '取消', exact: true }).click()
+  const cardDetails = page.getByRole('dialog', { name: '卡片详情', exact: true })
+  await expect(cardDetails.getByRole('heading', { name: '广发臻享白', exact: true })).toBeVisible()
+  await expect(cardDetails.locator('input, textarea, form')).toHaveCount(0)
+  await cardDetails.getByRole('button', { name: '关闭', exact: true }).click()
   for (const width of [1440, 1280, 1100, 820, 700, 520, 390, 320]) {
     await page.setViewportSize({ width, height: 1000 })
     const measurements = await page.evaluate(() => ({
@@ -333,8 +341,7 @@ test('card credit limit and annual fee details persist, validate and clear', asy
   const { tile, account, card, headers } = await setup(page, '卡片年费信息测试')
   const editor = page.getByRole('dialog', { name: '编辑卡片', exact: true })
   async function openCard() {
-    await tile.getByRole('button', { name: '待删除银行卡 · 4321', exact: true }).click()
-    await expect(editor).toBeVisible()
+    await openCardEditor(page, tile)
   }
   async function selectFeeDate(month: number, day: number) {
     await editor.locator('.annual-fee-date .el-select').first().click()
@@ -417,7 +424,144 @@ test('card credit limit and annual fee details persist, validate and clear', asy
   await expect(creator).not.toBeVisible()
   await expect(tile.getByRole('button', { name: '新卡 · 5678', exact: true })).toBeVisible()
   await page.reload()
-  await tile.getByRole('button', { name: '新卡 · 5678', exact: true }).click()
+  await openCardEditor(page, tile, '新卡')
   await expect(editor.getByLabel('额度（元）', { exact: true })).toHaveValue('0.00')
   await expect(editor.getByLabel('年费优惠信息', { exact: true })).toHaveValue('终身免年费')
+})
+
+test('card chips open read-only details with empty, disabled, zero-limit and mobile states', async ({
+  page,
+}, testInfo) => {
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  const { tile, account, card, headers } = await setup(page, '只读卡片详情测试')
+  const details = page.getByRole('dialog', { name: '卡片详情', exact: true })
+  const detailPanel = details.locator('.card-details-dialog')
+  const field = (name: string) =>
+    details
+      .locator('dl > div')
+      .filter({ has: page.locator('dt').filter({ hasText: new RegExp(`^${name}$`) }) })
+      .locator('dd')
+  let mutations = 0
+  page.on('request', (request) => {
+    if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(request.method())) mutations++
+  })
+  await tile.getByRole('button', { name: '待删除银行卡 · 4321', exact: true }).focus()
+  await page.keyboard.press('Enter')
+  await expect(details).toBeVisible()
+  await expect(field('卡片尾号')).toHaveText('4321')
+  await expect(field('所属账户')).toHaveText(account.name)
+  await expect(field('银行')).toHaveText('招商银行')
+  await expect(field('持卡人')).toHaveText('只读卡片详情测试')
+  await expect(field('还款模式')).toHaveText('独立还款')
+  await expect(field('额度')).toHaveText('未设置')
+  await expect(field('年费收取日期')).toHaveText('未设置')
+  await expect(field('年费优惠信息')).toHaveText('未填写')
+  await expect(field('预计出账日')).toHaveText('未设置')
+  await expect(
+    details.locator('input, textarea, form, [role="switch"], [contenteditable="true"]'),
+  ).toHaveCount(0)
+  await expect(details.getByRole('button', { name: /编辑|删除|保存|添加/ })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(details).not.toBeVisible()
+  expect(mutations).toBe(0)
+
+  const benefits =
+    '首年免年费\n每年刷满 6 笔免次年年费\n<b>仅展示文字，不作为 HTML</b>\n' +
+    '优惠条件以银行公布为准。'.repeat(15)
+  const updated = await page.request.patch(`/api/v1/admin/cards/${card.id}`, {
+    headers,
+    data: {
+      name: card.name,
+      active: false,
+      credit_limit: '80000.50',
+      annual_fee_month: 2,
+      annual_fee_day: 29,
+      annual_fee_benefits: benefits,
+    },
+  })
+  expect(updated.status()).toBe(200)
+  expect(
+    (
+      await page.request.patch(`/api/v1/admin/accounts/${account.id}`, {
+        headers,
+        data: { name: account.name, active: false, statement_day: 12 },
+      })
+    ).status(),
+  ).toBe(200)
+  await page.reload()
+  await tile.getByRole('button', { name: '待删除银行卡 · 4321（停用）', exact: true }).click()
+  await expect(details.getByText('已停用', { exact: true })).toBeVisible()
+  await expect(field('额度')).toHaveText('¥ 80,000.50')
+  await expect(field('年费收取日期')).toHaveText('每年 2 月 29 日')
+  await expect(field('年费优惠信息')).toHaveText(benefits)
+  await expect(field('年费优惠信息').locator('b')).toHaveCount(0)
+  await expect(field('预计出账日')).toHaveText('每月 12 日')
+  expect(await field('年费优惠信息').evaluate((el) => getComputedStyle(el).whiteSpace)).toBe(
+    'pre-wrap',
+  )
+  await detailPanel.screenshot({
+    path: testInfo.outputPath('card-details-desktop.png'),
+    animations: 'disabled',
+  })
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 })
+    const bounds = (await detailPanel.boundingBox())!
+    expect(bounds.x).toBeGreaterThanOrEqual(0)
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width)
+    expect(bounds.y).toBeGreaterThanOrEqual(0)
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(844)
+    expect(await detailPanel.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+    await expect(details.getByRole('button', { name: /编辑|删除|保存|添加/ })).toHaveCount(0)
+    await details.getByRole('button', { name: '关闭', exact: true }).scrollIntoViewIfNeeded()
+    const headerBounds = (await details.locator('.el-dialog__header').boundingBox())!
+    const closeBounds = (await details
+      .getByRole('button', { name: '关闭', exact: true })
+      .boundingBox())!
+    expect(headerBounds.y).toBeGreaterThanOrEqual(0)
+    expect(closeBounds.y + closeBounds.height).toBeLessThanOrEqual(844)
+    expect(await detailPanel.evaluate((el) => getComputedStyle(el).display)).toBe('flex')
+  }
+  await detailPanel.screenshot({
+    path: testInfo.outputPath('card-details-mobile.png'),
+    animations: 'disabled',
+  })
+  await details.getByRole('button', { name: '关闭', exact: true }).click()
+  await expect(details).not.toBeVisible()
+  expect(mutations).toBe(0)
+
+  expect(
+    (
+      await page.request.patch(`/api/v1/admin/accounts/${account.id}`, {
+        headers,
+        data: { name: account.name, active: true },
+      })
+    ).status(),
+  ).toBe(200)
+  const created = await page.request.post('/api/v1/admin/cards', {
+    headers,
+    data: { name: '零额度备用卡', account_id: account.id, last_four: '6789', credit_limit: '0' },
+  })
+  expect(created.status()).toBe(201)
+  await page.reload()
+  await tile.getByRole('button', { name: '零额度备用卡 · 6789', exact: true }).click()
+  await expect(details.getByRole('heading', { name: '零额度备用卡', exact: true })).toBeVisible()
+  await expect(field('额度')).toHaveText('¥ 0.00')
+  await expect(field('年费优惠信息')).toHaveText('未填写')
+  await details.getByRole('button', { name: '关闭', exact: true }).click()
+  expect(mutations).toBe(0)
+
+  // Destructive actions remain in explicit account management, never in the detail view.
+  await tile.getByRole('button', { name: '编辑', exact: true }).click()
+  const manager = page.getByRole('dialog', { name: '编辑还款账户', exact: true })
+  await manager.getByRole('button', { name: '删除卡片 零额度备用卡', exact: true }).click()
+  const confirmation = page.locator('.el-message-box')
+  await confirmation.getByRole('button', { name: '取消', exact: true }).click()
+  await expect(manager.getByText('零额度备用卡 · 6789', { exact: true })).toBeVisible()
+  expect(mutations).toBe(0)
+  await manager.getByRole('button', { name: '删除卡片 零额度备用卡', exact: true }).click()
+  await confirmation.getByRole('button', { name: '确认删除', exact: true }).click()
+  await expect(manager.getByText('零额度备用卡 · 6789', { exact: true })).toHaveCount(0)
+  expect(mutations).toBe(1)
+  expect(errors).toEqual([])
 })

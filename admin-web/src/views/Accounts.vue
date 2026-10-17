@@ -3,7 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import { api, allItems } from '../api'
-import { modeText, type Bank, type Holder, type Account, type Card } from '../types'
+import { amountText, modeText, type Bank, type Holder, type Account, type Card } from '../types'
 const banks = ref<Bank[]>([]),
   holders = ref<Holder[]>([]),
   accounts = ref<Account[]>([])
@@ -17,6 +17,25 @@ const tab = ref('accounts'),
   entity = ref(''),
   editing = ref('')
 const deleting = ref('')
+const cardDetailsVisible = ref(false)
+const selectedAccountId = ref('')
+const selectedCardId = ref('')
+const selectedAccount = computed(() =>
+  accounts.value.find((account) => account.id === selectedAccountId.value),
+)
+const selectedCard = computed(() =>
+  selectedAccount.value?.cards.find((card) => card.id === selectedCardId.value),
+)
+const managedCards = computed(() =>
+  entity.value === 'account' && editing.value
+    ? (accounts.value.find((account) => account.id === editing.value)?.cards ?? [])
+    : [],
+)
+function viewCard(account: Account, card: Card) {
+  selectedAccountId.value = account.id
+  selectedCardId.value = card.id
+  cardDetailsVisible.value = true
+}
 const form = ref<Record<string, any>>({})
 const annualFeeDays = computed(() =>
   form.value.annual_fee_month ? new Date(2000, form.value.annual_fee_month, 0).getDate() : 31,
@@ -223,7 +242,7 @@ onMounted(load)
                   size="small"
                   :class="{ inactive: !c.active }"
                   :title="`${c.name} · ${c.last_four}${c.active ? '' : '（停用）'}`"
-                  @click="open('card', c)"
+                  @click="viewCard(a, c)"
                   >{{ c.name }} · {{ c.last_four }}{{ c.active ? '' : '（停用）' }}</el-button
                 ><span v-if="!a.cards.length" class="muted">暂未添加卡片</span>
               </div>
@@ -301,6 +320,77 @@ onMounted(load)
       ></el-tabs
     >
   </section>
+  <el-dialog
+    v-model="cardDetailsVisible"
+    class="card-details-dialog"
+    title="卡片详情"
+    width="min(560px, 94vw)"
+    destroy-on-close
+  >
+    <template v-if="selectedCard && selectedAccount">
+      <div class="card-detail-heading">
+        <h2>{{ selectedCard.name }}</h2>
+        <el-tag :type="selectedCard.active ? 'success' : 'info'" size="small">
+          {{ selectedCard.active ? '有效' : '已停用' }}
+        </el-tag>
+      </div>
+      <dl class="card-detail-list">
+        <div>
+          <dt>卡片尾号</dt>
+          <dd>{{ selectedCard.last_four }}</dd>
+        </div>
+        <div>
+          <dt>所属账户</dt>
+          <dd>{{ selectedAccount.name }}</dd>
+        </div>
+        <div>
+          <dt>银行</dt>
+          <dd>{{ selectedAccount.bank_name }}</dd>
+        </div>
+        <div>
+          <dt>持卡人</dt>
+          <dd>{{ selectedAccount.cardholder_name }}</dd>
+        </div>
+        <div>
+          <dt>还款模式</dt>
+          <dd>{{ modeText(selectedAccount.mode) }}</dd>
+        </div>
+        <div>
+          <dt>预计出账日</dt>
+          <dd>
+            {{
+              selectedAccount.statement_day ? `每月 ${selectedAccount.statement_day} 日` : '未设置'
+            }}
+          </dd>
+        </div>
+        <div>
+          <dt>额度</dt>
+          <dd>
+            {{
+              selectedCard.credit_limit == null ? '未设置' : amountText(selectedCard.credit_limit)
+            }}
+          </dd>
+        </div>
+        <div>
+          <dt>年费收取日期</dt>
+          <dd>
+            {{
+              selectedCard.annual_fee_month && selectedCard.annual_fee_day
+                ? `每年 ${selectedCard.annual_fee_month} 月 ${selectedCard.annual_fee_day} 日`
+                : '未设置'
+            }}
+          </dd>
+        </div>
+        <div class="card-detail-benefits">
+          <dt>年费优惠信息</dt>
+          <dd>{{ selectedCard.annual_fee_benefits || '未填写' }}</dd>
+        </div>
+      </dl>
+    </template>
+    <template #footer>
+      <el-button @click="cardDetailsVisible = false">关闭</el-button>
+    </template>
+  </el-dialog>
   <el-dialog v-model="dialog" :title="title" width="min(520px, 94vw)"
     ><el-form label-position="top" @submit.prevent="save"
       ><el-form-item label="名称" required
@@ -342,7 +432,33 @@ onMounted(load)
         /></el-form-item>
         <p v-if="editing" class="form-hint">
           已有账户不能直接切换模式或归属。请新建账户并停用旧账户。
-        </p></template
+        </p>
+        <section v-if="editing" class="card-management" aria-label="卡片管理">
+          <h3>卡片管理</h3>
+          <p class="card-field-hint">在此编辑或删除卡片；列表中的卡片标签仅用于查看详情。</p>
+          <div v-for="c in managedCards" :key="c.id" class="card-management-item">
+            <span>{{ c.name }} · {{ c.last_four }}{{ c.active ? '' : '（停用）' }}</span>
+            <div class="card-management-actions">
+              <el-button
+                text
+                :disabled="saving || !!deleting"
+                :aria-label="`编辑卡片 ${c.name}`"
+                @click="open('card', c)"
+                >编辑</el-button
+              >
+              <el-button
+                text
+                type="danger"
+                :loading="deleting === c.id"
+                :disabled="saving || (!!deleting && deleting !== c.id)"
+                :aria-label="`删除卡片 ${c.name}`"
+                @click="remove('card', c)"
+                >删除</el-button
+              >
+            </div>
+          </div>
+          <p v-if="!managedCards.length" class="card-field-hint">暂未添加卡片</p>
+        </section></template
       ><el-form-item v-if="entity === 'card' && !editing" label="卡片尾号（4 位）" required
         ><el-input
           v-model="form.last_four"
@@ -422,6 +538,89 @@ onMounted(load)
 </template>
 
 <style scoped>
+:global(.card-details-dialog) {
+  display: flex;
+  flex-direction: column;
+  max-height: 90dvh;
+  margin-block: 5vh;
+}
+:global(.card-details-dialog .el-dialog__header),
+:global(.card-details-dialog .el-dialog__footer) {
+  flex-shrink: 0;
+}
+:global(.card-details-dialog .el-dialog__body) {
+  min-height: 0;
+  overflow-y: auto;
+}
+.card-detail-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.card-detail-heading h2 {
+  margin: 0;
+  color: var(--el-text-color-primary);
+  font-size: 20px;
+  overflow-wrap: anywhere;
+}
+.card-detail-list {
+  margin: 0;
+}
+.card-detail-list > div {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  line-height: 1.7;
+}
+.card-detail-list dt {
+  color: var(--el-text-color-secondary);
+}
+.card-detail-list dd {
+  margin: 0;
+  color: var(--el-text-color-primary);
+  overflow-wrap: anywhere;
+}
+.card-detail-list > .card-detail-benefits {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  border-bottom: 0;
+}
+.card-detail-benefits dd {
+  white-space: pre-wrap;
+}
+.card-management {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+.card-management h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.card-management-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 8px 0;
+  overflow-wrap: anywhere;
+}
+.card-management-item > span {
+  min-width: 0;
+  flex: 1 1 160px;
+}
+.card-management-actions {
+  display: flex;
+  margin-left: auto;
+}
+.card-management-actions .el-button {
+  margin: 0;
+}
 .annual-fee-date {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
