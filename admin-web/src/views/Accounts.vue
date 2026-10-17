@@ -241,6 +241,7 @@ onMounted(load)
                   plain
                   size="small"
                   :class="{ inactive: !c.active }"
+                  :type="c.active ? undefined : 'danger'"
                   :title="`${c.name} · ${c.last_four}${c.active ? '' : '（停用）'}`"
                   @click="viewCard(a, c)"
                   >{{ c.name }} · {{ c.last_four }}{{ c.active ? '' : '（停用）' }}</el-button
@@ -335,7 +336,7 @@ onMounted(load)
             >· {{ selectedCard.last_four }}</span
           >
         </div>
-        <el-tag :type="selectedCard.active ? 'success' : 'info'" size="small">
+        <el-tag :type="selectedCard.active ? 'success' : 'danger'" size="small">
           {{ selectedCard.active ? '有效' : '已停用' }}
         </el-tag>
       </div>

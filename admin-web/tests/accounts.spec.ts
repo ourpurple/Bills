@@ -463,7 +463,9 @@ test('card chips open read-only details with empty, disabled, zero-limit and mob
   page.on('request', (request) => {
     if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(request.method())) mutations++
   })
-  await tile.getByRole('button', { name: '待删除银行卡 · 4321', exact: true }).focus()
+  const activeChip = tile.getByRole('button', { name: '待删除银行卡 · 4321', exact: true })
+  await expect(activeChip).not.toHaveClass(/el-button--danger/)
+  await activeChip.focus()
   await page.keyboard.press('Enter')
   await expect(details).toBeVisible()
   await expect(details.locator('.card-detail-identity')).toHaveText(/^待删除银行卡\s*· 4321$/)
@@ -509,8 +511,19 @@ test('card chips open read-only details with empty, disabled, zero-limit and mob
     ).status(),
   ).toBe(200)
   await page.reload()
-  await tile.getByRole('button', { name: '待删除银行卡 · 4321（停用）', exact: true }).click()
+  const inactiveChip = tile.getByRole('button', {
+    name: '待删除银行卡 · 4321（停用）',
+    exact: true,
+  })
+  await expect(inactiveChip).toHaveClass(/el-button--danger/)
+  await expect(inactiveChip).toBeEnabled()
+  await tile.screenshot({
+    path: testInfo.outputPath('inactive-card-red.png'),
+    animations: 'disabled',
+  })
+  await inactiveChip.click()
   await expect(details.getByText('已停用', { exact: true })).toBeVisible()
+  await expect(details.locator('.card-detail-heading .el-tag')).toHaveClass(/el-tag--danger/)
   await expect(field('额度')).toHaveText('¥ 80,000.50')
   await expect(field('年费收取日期')).toHaveText('每年 2 月 29 日')
   await expect(field('年费优惠信息')).toHaveText(benefits)
