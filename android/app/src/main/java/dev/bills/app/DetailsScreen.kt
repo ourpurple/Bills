@@ -162,11 +162,14 @@ internal fun MonthHeader(
 internal fun LazyListScope.detailItems(s: UiState, actions: UiActions, prefix: String) {
     val row = s.statement ?: return
     if (s.detailSection == "transactions") {
+        val page = s.transactions
+        val noDetails =
+            page != null && page.items.isEmpty() && page.total == 0 && !s.transactionsIncomplete
         val extractionStatus =
             listOfNotNull(row.transactionStatus, s.transactions?.detailStatus).firstOrNull {
                 it != "complete"
             }
-        if (extractionStatus != null)
+        if (extractionStatus != null && !noDetails)
             item(key = "$prefix-status") {
                 Text(
                     detailStatus(extractionStatus),
@@ -178,7 +181,6 @@ internal fun LazyListScope.detailItems(s: UiState, actions: UiActions, prefix: S
                             .padding(horizontal = 16.dp, vertical = 10.dp),
                 )
             }
-        val page = s.transactions
         if (page == null)
             item(key = "$prefix-read-failed") {
                 EmptyState(
@@ -193,7 +195,8 @@ internal fun LazyListScope.detailItems(s: UiState, actions: UiActions, prefix: S
                 item(key = "$prefix-empty") {
                     EmptyState(
                         if (page.detailStatus == "complete") "暂无交易" else "尚无可展示详单",
-                        if (page.detailStatus == "complete") "该账单没有已提取交易；仍以银行账单为准。"
+                        if (noDetails) ""
+                        else if (page.detailStatus == "complete") "该账单没有已提取交易；仍以银行账单为准。"
                         else "未提供或未完整提取详单，不等于没有消费。",
                     )
                 }
@@ -205,25 +208,27 @@ internal fun LazyListScope.detailItems(s: UiState, actions: UiActions, prefix: S
                     TransactionRow(t, row.currency, s.amountsHidden)
                 }
             }
-            item(key = "$prefix-transaction-count") {
-                Column(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Text(
-                        "共 ${page.total} 条",
-                        color = Muted,
-                        fontSize = 12.sp,
-                        modifier = Modifier.testTag("transaction-count"),
-                    )
-                    if (s.transactionsIncomplete || page.items.size != page.total) {
+            if (!noDetails) {
+                item(key = "$prefix-transaction-count") {
+                    Column(
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
                         Text(
-                            if (s.busy) "正在读取，已显示 ${page.items.size} 条…"
-                            else "仅显示 ${page.items.size} 条，未完整读取，请下拉重试",
-                            color = if (s.busy) Muted else Coral,
-                            fontSize = 11.sp,
+                            "共 ${page.total} 条",
+                            color = Muted,
+                            fontSize = 12.sp,
+                            modifier = Modifier.testTag("transaction-count"),
                         )
+                        if (s.transactionsIncomplete || page.items.size != page.total) {
+                            Text(
+                                if (s.busy) "正在读取，已显示 ${page.items.size} 条…"
+                                else "仅显示 ${page.items.size} 条，未完整读取，请下拉重试",
+                                color = if (s.busy) Muted else Coral,
+                                fontSize = 11.sp,
+                            )
+                        }
                     }
                 }
             }

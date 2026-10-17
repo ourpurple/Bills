@@ -11,8 +11,8 @@ android {
         applicationId = "dev.bills.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 17
-        versionName = "0.4.13"
+        versionCode = 18
+        versionName = "0.4.14"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildTypes {

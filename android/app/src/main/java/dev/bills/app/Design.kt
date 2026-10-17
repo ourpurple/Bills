@@ -208,7 +208,8 @@ internal fun EmptyState(
     ) {
         AppIcon("details", Color(0xFFD3D4DB), Modifier.size(42.dp))
         Text(title, fontSize = 18.sp, color = Ink)
-        Text(message, color = Muted, style = MaterialTheme.typography.bodyMedium)
+        if (message.isNotBlank())
+            Text(message, color = Muted, style = MaterialTheme.typography.bodyMedium)
         if (retry != null) TextButton(onClick = retry, enabled = !busy) { Text("重新读取") }
     }
 }

@@ -883,24 +883,51 @@ class ReferenceUiTest {
     }
 
     @Test
-    fun missingAndPartialDetailsNeverImplyNoSpending() {
-        show(
-            base.copy(
-                screen = "detail",
-                statement = bill.copy(transactionStatus = "partial"),
-                transactions = Page(emptyList(), 0, 1, 20, 1, "partial"),
-            )
-        )
-        compose.onNode(hasText("详单不完整", substring = true)).assertExists()
-        compose.onNodeWithText("尚无可展示详单").assertExists()
+    fun emptyDetailsHideExplanationsAndCountInBothScreens() {
+        show(base.copy(screen = "detail"))
+        for (screen in listOf("detail", "details")) {
+            for (status in listOf("not_provided", "partial", "complete")) {
+                compose.runOnIdle {
+                    state.value =
+                        base.copy(
+                            screen = screen,
+                            statement = bill.copy(transactionStatus = status),
+                            transactions = Page(emptyList(), 0, 1, 20, 1, status),
+                        )
+                }
+                compose.onNodeWithText(
+                    if (status == "complete") "暂无交易" else "尚无可展示详单"
+                ).assertIsDisplayed()
+                compose.onNodeWithTag("transaction-count").assertDoesNotExist()
+                compose.onNodeWithText("共 0 条").assertDoesNotExist()
+                compose.onNode(hasText("未提供或", substring = true)).assertDoesNotExist()
+                compose.onNode(hasText("详单不完整", substring = true)).assertDoesNotExist()
+                compose.onNode(hasText("该账单没有已提取交易", substring = true)).assertDoesNotExist()
+            }
+        }
+        compose.runOnIdle { state.value = base.copy(screen = "detail") }
+        compose.onNodeWithTag("screen-detail").performScrollToNode(hasTestTag("transaction-count"))
+        compose.onNodeWithText("共 5 条").assertIsDisplayed()
+    }
+
+    @Test
+    fun unreadAndInterruptedDetailsKeepRetryHints() {
+        show(base.copy(screen = "detail", transactions = null))
+        compose.onNodeWithText("详单尚未读取成功").assertIsDisplayed()
+        compose.onNodeWithText("重新读取").assertIsDisplayed()
         compose.runOnIdle {
             state.value =
-                state.value.copy(
-                    statement = bill.copy(transactionStatus = "not_provided"),
-                    transactions = Page(emptyList(), 0, 1, 20, 1, "not_provided"),
+                base.copy(
+                    screen = "detail",
+                    statement = bill.copy(transactionStatus = "partial"),
+                    transactions = Page(emptyList(), 5, 1, 20, 1, "partial"),
+                    transactionsIncomplete = true,
                 )
         }
-        compose.onNode(hasText("不等于无交易", substring = true)).assertExists()
+        compose.onNode(hasText("详单不完整", substring = true)).assertIsDisplayed()
+        compose.onNodeWithTag("screen-detail").performScrollToNode(hasTestTag("transaction-count"))
+        compose.onNodeWithText("共 5 条").assertIsDisplayed()
+        compose.onNodeWithText("仅显示 0 条，未完整读取，请下拉重试").assertIsDisplayed()
     }
 
     @Test
