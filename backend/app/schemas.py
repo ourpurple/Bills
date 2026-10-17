@@ -76,8 +76,7 @@ class AccountUpdate(Input):
     statement_day: Annotated[int, Field(ge=1, le=31)] | None = None
 
 
-class CardFields(Input):
-    credit_limit: Annotated[Decimal, Field(ge=0, le=Decimal("999999999999.99"), decimal_places=2)] | None = None
+class AnnualFeeUpdate(Input):
     annual_fee_month: Annotated[int, Field(ge=1, le=12)] | None = None
     annual_fee_day: Annotated[int, Field(ge=1, le=31)] | None = None
     annual_fee_benefits: Annotated[str, Field(max_length=2000)] | None = None
@@ -92,6 +91,12 @@ class CardFields(Input):
             # A recurring month/day has no year; February 29 is a valid choice.
             date(2000, self.annual_fee_month, self.annual_fee_day)
         return self
+
+
+class CardFields(AnnualFeeUpdate):
+    credit_limit: Annotated[Decimal, Field(ge=0, le=Decimal("999999999999.99"), decimal_places=2)] | None = (
+        None
+    )
 
 
 class CardCreate(CardFields):

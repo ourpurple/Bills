@@ -438,6 +438,21 @@ def create_app(settings: Settings | None = None):
         audit(db, actor.id, "card.updated", row.id)
         return service.card_view(row)
 
+    @app.patch("/api/v1/admin/cards/{object_id}/annual-fee")
+    def update_card_annual_fee(
+        object_id: str,
+        data: S.AnnualFeeUpdate,
+        db=Depends(get_db, scope="function"),
+        actor=Depends(administrator, scope="function"),
+    ):
+        row = service.require(db, Card, object_id)
+        # Annual-fee records can be maintained for inactive cards and parents too.
+        # This endpoint never changes a card's identity, credit limit or active state.
+        for key, value in data.model_dump(exclude_unset=True).items():
+            setattr(row, key, value)
+        audit(db, actor.id, "card.annual_fee_updated", row.id)
+        return service.card_view(row)
+
     @app.delete("/api/v1/admin/cards/{object_id}")
     def delete_card(
         object_id: str,

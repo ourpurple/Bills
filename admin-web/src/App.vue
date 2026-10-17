@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   DataBoard,
   CreditCard,
+  Calendar,
   Document,
   Setting,
   Message,
@@ -19,6 +20,7 @@ const route = useRoute(),
 const navigation = [
   { path: '/', label: '账单概览', icon: DataBoard },
   { path: '/statements', label: '账单管理', icon: Document },
+  { path: '/annual-fees', label: '年费管理', icon: Calendar },
   { path: '/imports', label: '邮件中心', icon: Message },
   { path: '/models', label: '模型与核对', icon: MagicStick },
   { path: '/tasks', label: '任务队列', icon: List },

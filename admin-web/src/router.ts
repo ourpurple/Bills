@@ -4,6 +4,7 @@ const Login = () => import('./views/Login.vue')
 const Overview = () => import('./views/Overview.vue')
 const Accounts = () => import('./views/Accounts.vue')
 const Statements = () => import('./views/Statements.vue')
+const AnnualFees = () => import('./views/AnnualFees.vue')
 const Imports = () => import('./views/Imports.vue')
 const Models = () => import('./views/Models.vue')
 const Tasks = () => import('./views/Tasks.vue')
@@ -14,6 +15,7 @@ const router = createRouter({
     { path: '/login', component: Login, meta: { title: '登录' } },
     { path: '/', component: Overview, meta: { title: '账单概览' } },
     { path: '/statements', component: Statements, meta: { title: '账单管理' } },
+    { path: '/annual-fees', component: AnnualFees, meta: { title: '年费管理' } },
     { path: '/imports', component: Imports, meta: { title: '邮件中心' } },
     { path: '/models', component: Models, meta: { title: '模型与核对' } },
     { path: '/tasks', component: Tasks, meta: { title: '任务队列' } },
