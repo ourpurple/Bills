@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import { api, allItems } from '../api'
@@ -18,6 +18,16 @@ const tab = ref('accounts'),
   editing = ref('')
 const deleting = ref('')
 const form = ref<Record<string, any>>({})
+const annualFeeDays = computed(() =>
+  form.value.annual_fee_month ? new Date(2000, form.value.annual_fee_month, 0).getDate() : 31,
+)
+watch(
+  () => form.value.annual_fee_month,
+  () => {
+    if (!form.value.annual_fee_month || form.value.annual_fee_day > annualFeeDays.value)
+      form.value.annual_fee_day = null
+  },
+)
 const title = computed(
   () =>
     `${editing.value ? '编辑' : '新增'}${({ bank: '银行', holder: '持卡人', account: '还款账户', card: '卡片' } as Record<string, string>)[entity.value]}`,
@@ -56,6 +66,10 @@ function open(kind: string, row?: any, accountId?: string) {
         statement_day: null,
         account_id: accountId || '',
         last_four: '',
+        credit_limit: null,
+        annual_fee_month: null,
+        annual_fee_day: null,
+        annual_fee_benefits: '',
         active: true,
       }
   dialog.value = true
@@ -70,6 +84,25 @@ async function save() {
     ElMessage.warning('请选择银行和持卡人')
     return
   }
+  const cardDetails = {
+    credit_limit: String(f.credit_limit ?? '').trim() || null,
+    annual_fee_month: f.annual_fee_month || null,
+    annual_fee_day: f.annual_fee_day || null,
+    annual_fee_benefits: f.annual_fee_benefits?.trim() || null,
+  }
+  if (entity.value === 'card') {
+    if (
+      cardDetails.credit_limit !== null &&
+      !/^\d{1,12}(\.\d{1,2})?$/.test(cardDetails.credit_limit)
+    ) {
+      ElMessage.warning('额度请输入非负金额，最多 12 位整数和 2 位小数')
+      return
+    }
+    if (!!cardDetails.annual_fee_month !== !!cardDetails.annual_fee_day) {
+      ElMessage.warning('请完整选择年费收取月份和日期，或清空月份以取消设置')
+      return
+    }
+  }
   const creates: Record<string, unknown> = {
     bank: { code: f.code, name: f.name, default_mode: f.default_mode },
     holder: { name: f.name },
@@ -80,13 +113,13 @@ async function save() {
       mode: f.mode || null,
       statement_day: f.statement_day || null,
     },
-    card: { name: f.name, account_id: f.account_id, last_four: f.last_four },
+    card: { name: f.name, account_id: f.account_id, last_four: f.last_four, ...cardDetails },
   }
   const updates: Record<string, unknown> = {
     bank: { name: f.name, default_mode: f.default_mode, active: f.active },
     holder: { name: f.name, active: f.active },
     account: { name: f.name, active: f.active, statement_day: f.statement_day || null },
-    card: { name: f.name, active: f.active },
+    card: { name: f.name, active: f.active, ...cardDetails },
   }
   const paths: Record<string, string> = {
     bank: 'banks',
@@ -315,6 +348,57 @@ onMounted(load)
           v-model="form.last_four"
           maxlength="4"
           placeholder="仅保存尾号，不收集完整卡号" /></el-form-item
+      ><template v-if="entity === 'card'">
+        <el-form-item label="额度（元）" for="card-credit-limit">
+          <el-input
+            id="card-credit-limit"
+            v-model="form.credit_limit"
+            inputmode="decimal"
+            maxlength="15"
+            clearable
+            placeholder="选填，例如 50000.00"
+          >
+            <template #prefix>¥</template>
+          </el-input>
+        </el-form-item>
+        <el-form-item label="年费收取日期（每年几月几日）">
+          <div class="annual-fee-date">
+            <el-select
+              v-model="form.annual_fee_month"
+              aria-label="年费月份"
+              clearable
+              placeholder="选择月份"
+            >
+              <el-option v-for="month in 12" :key="month" :label="`${month} 月`" :value="month" />
+            </el-select>
+            <el-select
+              v-model="form.annual_fee_day"
+              aria-label="年费日期"
+              :disabled="!form.annual_fee_month"
+              clearable
+              placeholder="选择日期"
+            >
+              <el-option
+                v-for="day in annualFeeDays"
+                :key="day"
+                :label="`${day} 日`"
+                :value="day"
+              />
+            </el-select>
+          </div>
+          <div class="card-field-hint">选填；仅记录月、日，清空月份可取消设置。</div>
+        </el-form-item>
+        <el-form-item label="年费优惠信息" for="card-annual-fee-benefits">
+          <el-input
+            id="card-annual-fee-benefits"
+            v-model="form.annual_fee_benefits"
+            type="textarea"
+            :rows="3"
+            maxlength="2000"
+            show-word-limit
+            placeholder="选填，例如首年免年费，每年刷满 6 笔免次年年费"
+          />
+        </el-form-item> </template
       ><el-form-item v-if="editing" label="有效状态"
         ><el-switch
           v-model="form.active"
@@ -338,6 +422,19 @@ onMounted(load)
 </template>
 
 <style scoped>
+.annual-fee-date {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+}
+.card-field-hint {
+  margin-top: 6px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .account-list {
   container-type: inline-size;
   padding: 0 22px 16px;

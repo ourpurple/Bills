@@ -326,3 +326,98 @@ test('compact account rows align on desktop and fit narrow screens', async ({ pa
     page.getByText('先添加持卡人，再选择银行创建还款账户。', { exact: true }),
   ).toBeVisible()
 })
+
+test('card credit limit and annual fee details persist, validate and clear', async ({
+  page,
+}, testInfo) => {
+  const { tile, account, card, headers } = await setup(page, '卡片年费信息测试')
+  const editor = page.getByRole('dialog', { name: '编辑卡片', exact: true })
+  async function openCard() {
+    await tile.getByRole('button', { name: '待删除银行卡 · 4321', exact: true }).click()
+    await expect(editor).toBeVisible()
+  }
+  async function selectFeeDate(month: number, day: number) {
+    await editor.locator('.annual-fee-date .el-select').first().click()
+    await page.getByRole('option', { name: `${month} 月`, exact: true }).click()
+    await editor.locator('.annual-fee-date .el-select').last().click()
+    await page.getByRole('option', { name: `${day} 日`, exact: true }).click()
+  }
+  async function storedCard() {
+    const result = await (await page.request.get('/api/v1/admin/accounts')).json()
+    return result.items.find((a: { id: string }) => a.id === account.id).cards[0]
+  }
+  await openCard()
+  await expect(editor.getByRole('combobox', { name: '年费日期', exact: true })).toBeDisabled()
+  await editor.getByLabel('额度（元）', { exact: true }).fill('-1')
+  await editor.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(
+    page.getByText('额度请输入非负金额，最多 12 位整数和 2 位小数', { exact: true }),
+  ).toBeVisible()
+  await editor.getByLabel('额度（元）', { exact: true }).fill('80000.50')
+  await selectFeeDate(2, 29)
+  await editor.locator('.annual-fee-date .el-select').last().click()
+  await expect(page.getByRole('option', { name: '30 日', exact: true })).toHaveCount(0)
+  await editor.getByRole('combobox', { name: '年费日期', exact: true }).press('Escape')
+  const benefits = '首年免年费\n每年刷满 6 笔免次年年费'
+  await editor.getByLabel('年费优惠信息', { exact: true }).fill(benefits)
+  await editor.screenshot({
+    path: testInfo.outputPath('card-fee-editor-desktop.png'),
+    animations: 'disabled',
+  })
+  await editor.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(editor).not.toBeVisible()
+  expect(await storedCard()).toMatchObject({
+    credit_limit: '80000.50',
+    annual_fee_month: 2,
+    annual_fee_day: 29,
+    annual_fee_benefits: benefits,
+  })
+  await page.reload()
+  await openCard()
+  await expect(editor.getByLabel('额度（元）', { exact: true })).toHaveValue('80000.50')
+  await expect(editor.locator('.annual-fee-date .el-select').first()).toContainText('2 月')
+  await expect(editor.locator('.annual-fee-date .el-select').last()).toContainText('29 日')
+  await expect(editor.getByLabel('年费优惠信息', { exact: true })).toHaveValue(benefits)
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 })
+    const bounds = await editor.boundingBox()
+    expect(bounds!.x).toBeGreaterThanOrEqual(0)
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width)
+    await expect(editor.getByRole('button', { name: '保存', exact: true })).toBeVisible()
+  }
+  await editor.screenshot({
+    path: testInfo.outputPath('card-fee-editor-mobile.png'),
+    animations: 'disabled',
+  })
+  await editor.getByLabel('额度（元）', { exact: true }).fill('')
+  // Clearing the month also clears the day.
+  await editor.locator('.annual-fee-date .el-select').first().hover()
+  await editor.locator('.annual-fee-date .el-select').first().locator('.el-select__clear').click()
+  await editor.getByLabel('年费优惠信息', { exact: true }).fill('')
+  await editor.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(editor).not.toBeVisible()
+  expect(await storedCard()).toMatchObject({
+    credit_limit: null,
+    annual_fee_month: null,
+    annual_fee_day: null,
+    annual_fee_benefits: null,
+  })
+  // The creation dialog exposes and saves the same optional fields.
+  await page.request.patch(`/api/v1/admin/cards/${card.id}`, {
+    headers,
+    data: { name: card.name, active: false },
+  })
+  await tile.getByRole('button', { name: '添加卡片', exact: true }).click()
+  const creator = page.getByRole('dialog', { name: '新增卡片', exact: true })
+  await creator.getByRole('textbox').first().fill('新卡')
+  await creator.getByPlaceholder('仅保存尾号，不收集完整卡号').fill('5678')
+  await creator.getByLabel('额度（元）', { exact: true }).fill('0')
+  await creator.getByLabel('年费优惠信息', { exact: true }).fill('终身免年费')
+  await creator.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(creator).not.toBeVisible()
+  await expect(tile.getByRole('button', { name: '新卡 · 5678', exact: true })).toBeVisible()
+  await page.reload()
+  await tile.getByRole('button', { name: '新卡 · 5678', exact: true }).click()
+  await expect(editor.getByLabel('额度（元）', { exact: true })).toHaveValue('0.00')
+  await expect(editor.getByLabel('年费优惠信息', { exact: true })).toHaveValue('终身免年费')
+})

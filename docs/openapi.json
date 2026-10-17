@@ -4752,6 +4752,60 @@
       },
       "CardCreate": {
         "properties": {
+          "credit_limit": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 999999999999.99,
+                "minimum": 0.0
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credit Limit"
+          },
+          "annual_fee_month": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 12.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annual Fee Month"
+          },
+          "annual_fee_day": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 31.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annual Fee Day"
+          },
+          "annual_fee_benefits": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annual Fee Benefits"
+          },
           "account_id": {
             "type": "string",
             "maxLength": 80,
@@ -4781,6 +4835,60 @@
       },
       "CardUpdate": {
         "properties": {
+          "credit_limit": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 999999999999.99,
+                "minimum": 0.0
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credit Limit"
+          },
+          "annual_fee_month": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 12.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annual Fee Month"
+          },
+          "annual_fee_day": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 31.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annual Fee Day"
+          },
+          "annual_fee_benefits": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annual Fee Benefits"
+          },
           "name": {
             "type": "string",
             "maxLength": 80,

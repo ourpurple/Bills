@@ -408,11 +408,11 @@ def create_app(settings: Settings | None = None):
             select(Card.id).where(Card.account_id == account.id, Card.active.is_(True))
         ):
             raise DomainError("INDEPENDENT_CARD_LIMIT", "独立还款账户只能有一张有效卡，请新建还款账户")
-        row = Card(**data.model_dump())
+        row = Card(**service.card_values(data))
         db.add(row)
         db.flush()
         audit(db, actor.id, "card.created", row.id)
-        return basic(row, ("account_id", "last_four", "name", "active"))
+        return service.card_view(row)
 
     @app.patch("/api/v1/admin/cards/{object_id}")
     def update_card(
@@ -433,9 +433,10 @@ def create_app(settings: Settings | None = None):
             raise DomainError("INDEPENDENT_CARD_LIMIT", "独立还款账户已有关联有效卡")
         if data.active and not service.account_enabled(db, account):
             raise DomainError("INACTIVE_PARENT", "账户或上级资料已停用")
-        row.name, row.active = data.name, data.active
+        for key, value in service.card_values(data).items():
+            setattr(row, key, value)
         audit(db, actor.id, "card.updated", row.id)
-        return basic(row, ("account_id", "last_four", "name", "active"))
+        return service.card_view(row)
 
     @app.delete("/api/v1/admin/cards/{object_id}")
     def delete_card(

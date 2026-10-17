@@ -76,13 +76,31 @@ class AccountUpdate(Input):
     statement_day: Annotated[int, Field(ge=1, le=31)] | None = None
 
 
-class CardCreate(Input):
+class CardFields(Input):
+    credit_limit: Annotated[Decimal, Field(ge=0, le=Decimal("999999999999.99"), decimal_places=2)] | None = None
+    annual_fee_month: Annotated[int, Field(ge=1, le=12)] | None = None
+    annual_fee_day: Annotated[int, Field(ge=1, le=31)] | None = None
+    annual_fee_benefits: Annotated[str, Field(max_length=2000)] | None = None
+
+    @model_validator(mode="after")
+    def valid_annual_fee_date(self):
+        if ("annual_fee_month" in self.model_fields_set) != ("annual_fee_day" in self.model_fields_set):
+            raise ValueError("年费收取月份和日期必须同时填写或清空")
+        if (self.annual_fee_month is None) != (self.annual_fee_day is None):
+            raise ValueError("年费收取月份和日期必须同时填写或清空")
+        if self.annual_fee_month is not None:
+            # A recurring month/day has no year; February 29 is a valid choice.
+            date(2000, self.annual_fee_month, self.annual_fee_day)
+        return self
+
+
+class CardCreate(CardFields):
     account_id: Name
     last_four: Annotated[str, Field(pattern=r"^\d{4}$")]
     name: Name
 
 
-class CardUpdate(Input):
+class CardUpdate(CardFields):
     name: Name
     active: bool
 

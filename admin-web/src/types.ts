@@ -28,6 +28,10 @@ export interface Card {
   name: string
   last_four: string
   active: boolean
+  credit_limit: string | null
+  annual_fee_month: number | null
+  annual_fee_day: number | null
+  annual_fee_benefits: string | null
 }
 export interface Account {
   id: string

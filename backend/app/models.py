@@ -89,6 +89,10 @@ class Card(Identity, Base):
     last_four: Mapped[str] = mapped_column(String(4))
     name: Mapped[str] = mapped_column(String(80))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    credit_limit_minor: Mapped[int | None] = mapped_column(Integer)
+    annual_fee_month: Mapped[int | None] = mapped_column(Integer)
+    annual_fee_day: Mapped[int | None] = mapped_column(Integer)
+    annual_fee_benefits: Mapped[str | None] = mapped_column(Text)
 
 
 class Statement(Identity, Base):

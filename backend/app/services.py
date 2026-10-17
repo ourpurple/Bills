@@ -105,6 +105,27 @@ def account_enabled(db, account):
     )
 
 
+def card_values(data):
+    values = data.model_dump(exclude_unset=True)
+    if "credit_limit" in values:
+        values["credit_limit_minor"] = minor(values.pop("credit_limit"), "CNY")
+    return values
+
+
+def card_view(card):
+    return dict(
+        id=card.id,
+        account_id=card.account_id,
+        name=card.name,
+        last_four=card.last_four,
+        active=card.active,
+        credit_limit=money(card.credit_limit_minor, "CNY"),
+        annual_fee_month=card.annual_fee_month,
+        annual_fee_day=card.annual_fee_day,
+        annual_fee_benefits=card.annual_fee_benefits,
+    )
+
+
 def account_view(db, account):
     group = require(db, AccountGroup, account.group_id)
     bank = require(db, Bank, group.bank_id)
@@ -124,7 +145,7 @@ def account_view(db, account):
         cardholder_id=holder.id,
         cardholder_name=holder.name,
         group_name=group.name,
-        cards=[dict(id=c.id, name=c.name, last_four=c.last_four, active=c.active) for c in cards],
+        cards=[card_view(c) for c in cards],
     )
 
 
