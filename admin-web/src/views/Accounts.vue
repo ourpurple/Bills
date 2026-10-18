@@ -590,11 +590,19 @@ onMounted(load)
     v-model="dialog"
     :title="title"
     class="card-editor-dialog"
-    width="min(520px, 94vw)"
+    :class="{ 'is-card-editor': entity === 'card' }"
+    :width="entity === 'card' ? 'min(560px, 94vw)' : 'min(520px, 94vw)'"
     destroy-on-close
-    ><el-form label-position="top" @submit.prevent="save"
-      ><el-form-item label="名称" required
-        ><el-input v-model="form.name" maxlength="80" /></el-form-item
+    ><el-form
+      :class="{ 'card-editor-form': entity === 'card' }"
+      label-position="top"
+      @submit.prevent="save"
+      ><el-form-item
+        label="名称"
+        for="entity-name"
+        required
+        :class="{ 'card-editor-name': entity === 'card' }"
+        ><el-input id="entity-name" v-model="form.name" maxlength="80" /></el-form-item
       ><el-form-item v-if="entity === 'bank' && !editing" label="银行代码（小写字母开头）" required
         ><el-input v-model="form.code" maxlength="32" /></el-form-item
       ><el-form-item v-if="entity === 'bank'" label="默认还款模式"
@@ -699,123 +707,134 @@ onMounted(load)
             </el-select>
           </el-form-item>
         </div>
-        <el-form-item label="卡号" for="card-number">
-          <el-input
-            id="card-number"
-            v-model="form.card_number"
-            type="password"
-            show-password
-            inputmode="numeric"
-            autocomplete="off"
-            maxlength="32"
-            :disabled="editorPrivateLoading"
-            :placeholder="
-              form.has_card_number && form.card_number === undefined
-                ? '已加密保存，不修改则保留'
-                : '选填，12–19 位数字'
-            "
-          />
-          <el-button
-            v-if="form.has_card_number && form.card_number === undefined"
-            text
-            type="danger"
-            @click="form.card_number = ''"
-            >清除已保存卡号</el-button
-          >
-        </el-form-item>
-        <div class="card-identity-fields">
-          <el-form-item label="有效期" for="card-expiry">
+        <section class="card-editor-private" aria-label="卡片安全信息">
+          <el-form-item label="卡号" for="card-number">
             <el-input
-              id="card-expiry"
-              v-model="form.expiry"
-              maxlength="5"
-              placeholder="MM/YY，例如 09/29"
-              autocomplete="off"
-            />
-          </el-form-item>
-          <el-form-item label="CVV" for="card-cvv">
-            <el-input
-              id="card-cvv"
-              v-model="form.cvv"
+              id="card-number"
+              v-model="form.card_number"
               type="password"
               show-password
               inputmode="numeric"
               autocomplete="off"
-              maxlength="4"
+              maxlength="32"
               :disabled="editorPrivateLoading"
               :placeholder="
-                form.has_cvv && form.cvv === undefined
+                form.has_card_number && form.card_number === undefined
                   ? '已加密保存，不修改则保留'
-                  : '3 或 4 位安全码'
+                  : '选填，12–19 位数字'
               "
             />
             <el-button
-              v-if="form.has_cvv && form.cvv === undefined"
+              v-if="form.has_card_number && form.card_number === undefined"
+              class="card-private-clear"
               text
               type="danger"
-              @click="form.cvv = ''"
-              >清除已保存 CVV</el-button
+              @click="form.card_number = ''"
+              >清除已保存卡号</el-button
             >
           </el-form-item>
-        </div>
-        <div class="card-private-hint">
-          <p class="card-field-hint">
-            选填；卡号与 CVV 加密保存，需服务端配置 BILLS_MASTER_KEY。避免在公共设备查看。
-          </p>
-          <el-button
-            v-if="editing && (form.has_card_number || form.has_cvv)"
-            size="small"
-            :loading="editorPrivateLoading"
-            :disabled="saving"
-            @click="loadPrivateForEdit"
-            >读取已保存卡号 / CVV</el-button
-          >
-        </div>
-        <el-form-item label="额度（元）" for="card-credit-limit">
-          <el-input
-            id="card-credit-limit"
-            v-model="form.credit_limit"
-            inputmode="decimal"
-            maxlength="15"
-            clearable
-            placeholder="选填，例如 50000.00"
-          >
-            <template #prefix>¥</template>
-          </el-input>
-        </el-form-item>
-        <el-form-item label="年费收取日期（每年几月几日）">
-          <div class="annual-fee-date">
-            <el-select
-              v-model="form.annual_fee_month"
-              aria-label="年费月份"
-              clearable
-              placeholder="选择月份"
-            >
-              <el-option v-for="month in 12" :key="month" :label="`${month} 月`" :value="month" />
-            </el-select>
-            <el-select
-              v-model="form.annual_fee_day"
-              aria-label="年费日期"
-              :disabled="!form.annual_fee_month"
-              clearable
-              placeholder="选择日期"
-            >
-              <el-option
-                v-for="day in annualFeeDays"
-                :key="day"
-                :label="`${day} 日`"
-                :value="day"
+          <div class="card-private-pair">
+            <el-form-item label="有效期" for="card-expiry">
+              <el-input
+                id="card-expiry"
+                v-model="form.expiry"
+                maxlength="5"
+                placeholder="MM/YY，例如 09/29"
+                autocomplete="off"
               />
-            </el-select>
+            </el-form-item>
+            <el-form-item label="CVV" for="card-cvv">
+              <el-input
+                id="card-cvv"
+                v-model="form.cvv"
+                type="password"
+                show-password
+                inputmode="numeric"
+                autocomplete="off"
+                maxlength="4"
+                :disabled="editorPrivateLoading"
+                :placeholder="
+                  form.has_cvv && form.cvv === undefined
+                    ? '已加密保存，不修改则保留'
+                    : '3 或 4 位安全码'
+                "
+              />
+              <el-button
+                v-if="form.has_cvv && form.cvv === undefined"
+                class="card-private-clear"
+                text
+                type="danger"
+                @click="form.cvv = ''"
+                >清除已保存 CVV</el-button
+              >
+            </el-form-item>
           </div>
-          <div class="card-field-hint">选填；仅记录月、日，清空月份可取消设置。</div>
-        </el-form-item>
-        <el-form-item label="年费优惠信息" for="card-annual-fee-benefits">
+          <div class="card-private-hint">
+            <p class="card-field-hint">
+              选填；卡号 / CVV 加密保存（需配置 BILLS_MASTER_KEY），公共设备请勿查看。
+            </p>
+            <el-button
+              v-if="editing && (form.has_card_number || form.has_cvv)"
+              size="small"
+              :loading="editorPrivateLoading"
+              :disabled="saving"
+              @click="loadPrivateForEdit"
+              >读取已保存卡号 / CVV</el-button
+            >
+          </div>
+        </section>
+        <div class="card-editor-finance">
+          <el-form-item label="额度（元）" for="card-credit-limit">
+            <el-input
+              id="card-credit-limit"
+              v-model="form.credit_limit"
+              inputmode="decimal"
+              maxlength="15"
+              clearable
+              placeholder="选填，例如 50000.00"
+            >
+              <template #prefix>¥</template>
+            </el-input>
+          </el-form-item>
+          <el-form-item label="年费收取日期" for="card-annual-fee-month">
+            <div class="annual-fee-date">
+              <el-select
+                id="card-annual-fee-month"
+                v-model="form.annual_fee_month"
+                aria-label="年费月份"
+                clearable
+                placeholder="选择月份"
+              >
+                <el-option v-for="month in 12" :key="month" :label="`${month} 月`" :value="month" />
+              </el-select>
+              <el-select
+                v-model="form.annual_fee_day"
+                aria-label="年费日期"
+                :disabled="!form.annual_fee_month"
+                clearable
+                placeholder="选择日期"
+              >
+                <el-option
+                  v-for="day in annualFeeDays"
+                  :key="day"
+                  :label="`${day} 日`"
+                  :value="day"
+                />
+              </el-select>
+            </div>
+            <div class="card-field-hint">每年收取；清空月份可取消设置。</div>
+          </el-form-item>
+        </div>
+        <el-form-item
+          class="card-editor-benefits"
+          label="年费优惠信息"
+          for="card-annual-fee-benefits"
+        >
           <el-input
             id="card-annual-fee-benefits"
             v-model="form.annual_fee_benefits"
             type="textarea"
-            :rows="3"
+            :rows="2"
             maxlength="2000"
             show-word-limit
             placeholder="选填，例如首年免年费，每年刷满 6 笔免次年年费"
@@ -843,39 +862,30 @@ onMounted(load)
       <p v-if="entity === 'card'" class="card-field-hint card-tracking-hint">
         仅有效且选择“是”的卡片参与账单追踪。关闭后保留历史账单和年费资料；合并账户仍有符合条件的卡片时继续追踪。
       </p> </el-form
-    ><template #footer
-      ><el-button
-        v-if="entity === 'card' && editing"
-        type="danger"
-        plain
-        :loading="deleting === editing"
-        :disabled="saving || (!!deleting && deleting !== editing)"
-        @click="remove('card', form as Card)"
-        >删除卡片</el-button
-      ><el-button :disabled="!!deleting" @click="dialog = false">取消</el-button
-      ><el-button
-        type="primary"
-        :loading="saving"
-        :disabled="!!deleting || editorPrivateLoading"
-        @click="save"
-        >保存</el-button
-      ></template
+    ><template #footer>
+      <div :class="{ 'card-editor-footer': entity === 'card' }">
+        <el-button
+          v-if="entity === 'card' && editing"
+          type="danger"
+          plain
+          :loading="deleting === editing"
+          :disabled="saving || (!!deleting && deleting !== editing)"
+          @click="remove('card', form as Card)"
+          >删除卡片</el-button
+        ><el-button :disabled="!!deleting" @click="dialog = false">取消</el-button
+        ><el-button
+          type="primary"
+          :loading="saving"
+          :disabled="!!deleting || editorPrivateLoading"
+          @click="save"
+          >保存</el-button
+        >
+      </div></template
     ></el-dialog
   >
 </template>
 
 <style scoped>
-.card-status-options {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0 20px;
-}
-.card-status-options :deep(.el-form-item) {
-  margin-bottom: 8px;
-}
-.card-tracking-hint {
-  margin: 0 0 12px;
-}
 :global(.card-editor-dialog) {
   display: flex;
   flex-direction: column;
@@ -890,24 +900,152 @@ onMounted(load)
   min-height: 0;
   overflow-y: auto;
 }
-
-.card-identity-fields {
+:global(.card-editor-dialog.is-card-editor) {
+  padding: 20px;
+  border: 1px solid #e4e9df;
+  border-radius: 14px;
+}
+:global(.is-card-editor .el-dialog__header) {
+  padding-bottom: 12px;
+}
+:global(.is-card-editor .el-dialog__title) {
+  font-size: 19px;
+}
+:global(.is-card-editor .el-dialog__body) {
+  scrollbar-gutter: stable;
+}
+:global(.is-card-editor .el-dialog__footer) {
+  padding-top: 12px;
+  margin-top: 4px;
+  border-top: 1px solid #edf0e9;
+}
+.card-editor-form :deep(.el-form-item) {
+  min-width: 0;
+  margin-bottom: 10px;
+}
+.card-editor-form :deep(.el-form-item__label) {
+  height: auto;
+  margin-bottom: 4px;
+  color: #737e74;
+  font-size: 12px;
+  line-height: 18px;
+}
+.card-editor-form :deep(.el-form-item__content) {
+  min-width: 0;
+  line-height: 1.5;
+}
+.card-editor-form .el-input,
+.card-editor-form .el-select,
+.card-editor-form .el-textarea {
+  width: 100%;
+  min-width: 0;
+}
+.card-editor-name {
+  padding: 9px 12px 10px;
+  border: 1px solid #e2e9df;
+  border-left: 3px solid var(--el-color-primary);
+  border-radius: 8px;
+  background: #f2f6ef;
+}
+.card-editor-name :deep(.el-input__inner) {
+  color: var(--el-color-primary);
+  font-weight: 600;
+}
+.card-identity-fields,
+.card-private-pair,
+.card-editor-finance,
+.card-status-options {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 16px;
 }
-.card-identity-fields .el-select {
-  width: 100%;
+.card-editor-private {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid #e2e9df;
+  border-radius: 10px;
+  background: #f2f6ef;
 }
 .card-private-hint {
-  margin: 0 0 20px;
-  padding: 12px 14px;
-  border: 1px solid #e4e9df;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding-top: 8px;
+  border-top: 1px solid #dfe7dc;
+}
+.card-private-hint p {
+  flex: 1 1 260px;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.card-editor-private .card-private-clear {
+  position: absolute;
+  top: -22px;
+  right: 0;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  font-size: 11px;
+}
+.card-editor-form .card-editor-benefits {
+  padding: 9px 12px 10px;
+  border: 1px solid #e9e7dd;
+  border-radius: 9px;
+  background: #faf9f5;
+}
+.card-status-options {
+  padding: 7px 12px;
+  border: 1px solid #e2e9df;
   border-radius: 8px;
   background: #f7f9f4;
 }
-.card-private-hint p {
-  margin: 0 0 8px;
+.card-status-options :deep(.el-form-item) {
+  margin-bottom: 0;
+}
+.card-status-options :deep(.el-form-item__label) {
+  margin-bottom: 0;
+}
+.card-status-options :deep(.el-switch) {
+  height: 28px;
+}
+.card-editor-form .card-tracking-hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.card-editor-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.card-editor-footer .el-button {
+  margin: 0;
+}
+.card-editor-footer .el-button--danger {
+  margin-right: auto;
+}
+@media (max-width: 420px) {
+  :global(.card-editor-dialog.is-card-editor) {
+    padding: 16px 12px;
+  }
+  .card-editor-finance {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .card-identity-fields,
+  .card-private-pair,
+  .card-status-options {
+    column-gap: 10px;
+  }
+  .card-editor-private {
+    padding-inline: 10px;
+  }
+  .card-editor-footer .el-button {
+    padding-inline: 12px;
+  }
 }
 .card-detail-list .private-value {
   font-variant-numeric: tabular-nums;
@@ -915,11 +1053,6 @@ onMounted(load)
 }
 .card-detail-list .card-detail-number {
   grid-column: 1 / -1;
-}
-@media (max-width: 420px) {
-  .card-identity-fields {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 :global(.card-details-dialog) {

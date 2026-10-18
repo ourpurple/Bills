@@ -1202,3 +1202,109 @@ test('card details edit shortcut opens the selected card and preserves private f
   expect(privateResponse.status()).toBe(200)
   expect(await privateResponse.json()).toMatchObject(secret)
 })
+
+test('compact card editor groups private fields and keeps actions visible at every viewport', async ({
+  page,
+}, testInfo) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  const { tile, card, headers } = await setup(page, '紧凑卡片编辑测试')
+  const response = await page.request.patch(`/api/v1/admin/cards/${card.id}`, {
+    headers,
+    data: {
+      name: '臻享白金信用卡',
+      active: true,
+      card_type: 'credit',
+      card_network: 'unionpay',
+      card_number: '4111111111114321',
+      expiry: '08/29',
+      cvv: '012',
+      credit_limit: '69000.00',
+      annual_fee_month: 8,
+      annual_fee_day: 15,
+      annual_fee_benefits: '刷卡12笔，免次年年费',
+    },
+  })
+  expect(response.status()).toBe(200)
+  await page.reload()
+  await openCardEditor(page, tile, '臻享白金信用卡')
+  const editor = page.getByRole('dialog', { name: '编辑卡片', exact: true })
+  const panel = editor.locator('.card-editor-dialog')
+  const body = editor.locator('.el-dialog__body')
+  const privateBlock = editor.getByRole('region', { name: '卡片安全信息', exact: true })
+  await expect(privateBlock.getByLabel('卡号', { exact: true })).toHaveValue('')
+  await expect(privateBlock.getByLabel('有效期', { exact: true })).toHaveValue('08/29')
+  await expect(privateBlock.getByLabel('CVV', { exact: true })).toHaveValue('')
+  await expect(privateBlock).toHaveCSS('background-color', 'rgb(242, 246, 239)')
+  for (const [width, height] of [
+    [1440, 900],
+    [1280, 720],
+    [390, 844],
+    [320, 640],
+  ]) {
+    await page.setViewportSize({ width, height })
+    await body.evaluate((el) => {
+      el.scrollTop = 0
+    })
+    await expect
+      .poll(() =>
+        panel.evaluate((el) => {
+          const bounds = el.getBoundingClientRect()
+          return (
+            bounds.x >= 0 &&
+            bounds.right <= innerWidth &&
+            bounds.y >= 0 &&
+            bounds.bottom <= innerHeight
+          )
+        }),
+      )
+      .toBe(true)
+    expect(await body.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+    for (const action of ['删除卡片', '取消', '保存']) {
+      await expect(editor.getByRole('button', { name: action, exact: true })).toBeInViewport()
+    }
+    for (const row of ['.card-identity-fields', '.card-private-pair']) {
+      expect(
+        await editor.locator(row).evaluate((el) => {
+          const [first, second] = Array.from(el.children, (child) => child.getBoundingClientRect())
+          return Math.abs(first.y - second.y) < 1 && first.right < second.x
+        }),
+      ).toBe(true)
+    }
+    if (width === 1440) {
+      expect((await panel.boundingBox())!.height).toBeLessThan(800)
+      expect(await body.evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true)
+      await expect(editor.getByRole('switch', { name: '追踪账单', exact: true })).toBeInViewport()
+    }
+    await panel.screenshot({
+      path: testInfo.outputPath(`compact-card-editor-${width}.png`),
+      animations: 'disabled',
+    })
+    await editor.getByRole('switch', { name: '追踪账单', exact: true }).scrollIntoViewIfNeeded()
+    await expect(editor.getByRole('switch', { name: '追踪账单', exact: true })).toBeInViewport()
+    await expect(editor.getByRole('button', { name: '保存', exact: true })).toBeInViewport()
+  }
+  await editor.getByRole('button', { name: '取消', exact: true }).click()
+  await expect(editor).not.toBeVisible()
+  // The shared account editor keeps its existing, non-card presentation.
+  await tile.getByRole('button', { name: '编辑', exact: true }).click()
+  const accountEditor = page.getByRole('dialog', { name: '编辑还款账户', exact: true })
+  await expect(accountEditor.locator('.is-card-editor')).toHaveCount(0)
+  await accountEditor.getByRole('button', { name: '取消', exact: true }).click()
+  // Independent accounts allow only one active card; preserve that rule for creation.
+  const deactivate = await page.request.patch(`/api/v1/admin/cards/${card.id}`, {
+    headers,
+    data: { name: '臻享白金信用卡', active: false },
+  })
+  expect(deactivate.status()).toBe(200)
+  await page.reload()
+  await tile.getByRole('button', { name: '添加卡片', exact: true }).click()
+  const creator = page.getByRole('dialog', { name: '新增卡片', exact: true })
+  await expect(creator.getByRole('button', { name: '删除卡片', exact: true })).toHaveCount(0)
+  await expect(creator.getByRole('button', { name: '保存', exact: true })).toBeInViewport()
+  await expect(creator.getByRole('region', { name: '卡片安全信息' })).toHaveCount(1)
+  await creator.getByLabel('名称', { exact: true }).fill('紧凑新增卡')
+  await creator.getByPlaceholder('填写 4 位尾号，或填写完整卡号自动提取').fill('6789')
+  await creator.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(creator).not.toBeVisible()
+  await expect(tile.getByRole('button', { name: '紧凑新增卡 · 6789', exact: true })).toBeVisible()
+})
