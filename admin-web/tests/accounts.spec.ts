@@ -473,6 +473,10 @@ test('card chips open read-only details with empty, disabled, zero-limit and mob
   await expect(details.locator('.card-detail-identity')).toHaveText(/^待删除银行卡\s*· 4321$/)
   await expect(details.getByLabel('卡片尾号 4321', { exact: true })).toBeVisible()
   await expect(details.locator('dt').filter({ hasText: /^(卡片尾号|所属账户)$/ })).toHaveCount(0)
+  const privateBlock = details.getByRole('region', { name: '卡片安全信息' })
+  await expect(privateBlock.locator('dt')).toHaveText(['卡号', '有效期', 'CVV'])
+  await expect(privateBlock.getByText('未填写', { exact: true })).toHaveCount(3)
+  await expect(privateBlock.locator('.private-controls')).toHaveCount(0)
   await expect(field('银行')).toHaveText('招商银行')
   await expect(field('持卡人')).toHaveText('只读卡片详情测试')
   await expect(field('还款模式')).toHaveText('独立还款')
@@ -670,10 +674,83 @@ test('card details keep complete information compact without clipping on desktop
     })
   }
   await details.getByRole('button', { name: '查看卡号 / CVV', exact: true }).click()
-  await expect(details.getByText('4111111111114321', { exact: true })).toBeVisible()
+  await expect(details.getByText('4111 1111 1111 4321', { exact: true })).toBeVisible()
   expect(await body.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
   await details.getByRole('button', { name: '隐藏卡号 / CVV', exact: true }).click()
-  await expect(details.getByText('4111111111114321', { exact: true })).toHaveCount(0)
+  await expect(details.getByText('4111 1111 1111 4321', { exact: true })).toHaveCount(0)
+})
+
+test('card numbers are larger, colored and grouped every four digits without changing stored values', async ({
+  page,
+}, testInfo) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  const { tile, card, headers } = await setup(page, '卡号分组显示测试')
+  const details = page.getByRole('dialog', { name: '卡片详情', exact: true })
+  const numberValue = details.locator('.card-number-value')
+  const variants = [
+    ['123456784321', '1234 5678 4321'],
+    ['123456789014321', '1234 5678 9014 321'],
+    ['4111111111114321', '4111 1111 1111 4321'],
+    ['6222021234567894321', '6222 0212 3456 7894 321'],
+  ]
+  for (const [raw, formatted] of variants) {
+    expect(
+      (
+        await page.request.patch(`/api/v1/admin/cards/${card.id}`, {
+          headers,
+          data: { name: card.name, active: true, card_number: raw, cvv: '012' },
+        })
+      ).status(),
+    ).toBe(200)
+    await page.reload()
+    await tile.getByRole('button', { name: '待删除银行卡 · 4321', exact: true }).click()
+    await expect(numberValue).toHaveText('•••• •••• •••• 4321')
+    await details.getByRole('button', { name: '查看卡号 / CVV', exact: true }).click()
+    await expect(numberValue).toHaveText(formatted)
+    const privateBlock = details.getByRole('region', { name: '卡片安全信息' })
+    await expect(privateBlock.locator('dt')).toHaveText(['卡号', '有效期', 'CVV'])
+    await expect(
+      privateBlock.getByRole('button', { name: '隐藏卡号 / CVV', exact: true }),
+    ).toBeVisible()
+    expect(await privateBlock.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(
+      'rgb(242, 246, 239)',
+    )
+    await expect(details.locator('dd').filter({ hasText: /^012$/ })).toBeVisible()
+    for (const width of [1440, 390, 320]) {
+      await page.setViewportSize({ width, height: 844 })
+      const styles = await numberValue.evaluate((el) => {
+        const style = getComputedStyle(el)
+        return {
+          size: parseFloat(style.fontSize),
+          color: style.color,
+          fits: el.scrollWidth <= el.clientWidth + 1,
+        }
+      })
+      expect(styles.size).toBe(width === 1440 ? 22 : 18)
+      expect(styles.color).toBe('rgb(36, 87, 69)')
+      expect(styles.fits).toBe(true)
+      expect(
+        await details
+          .locator('.el-dialog__body')
+          .evaluate((el) => el.scrollWidth <= el.clientWidth),
+      ).toBe(true)
+      if (raw.length >= 16)
+        await details.locator('.card-details-dialog').screenshot({
+          path: testInfo.outputPath(`card-number-${raw.length}-${width}.png`),
+          animations: 'disabled',
+        })
+    }
+    // Grouping is display-only: the API retains the exact original digits and CVV.
+    expect(
+      await (await page.request.post(`/api/v1/admin/cards/${card.id}/private`, { headers })).json(),
+    ).toEqual({
+      card_number: raw,
+      cvv: '012',
+    })
+    await details.getByRole('button', { name: '隐藏卡号 / CVV', exact: true }).click()
+    await expect(numberValue).toHaveText('•••• •••• •••• 4321')
+    await details.getByRole('button', { name: '关闭', exact: true }).click()
+  }
 })
 
 test('card identity fields validate, stay private, persist and clear', async ({
@@ -728,10 +805,10 @@ test('card identity fields validate, stay private, persist and clear', async ({
   await expect(field('CVV')).toHaveText('•••')
   expect(reads).toBe(0)
   await details.getByRole('button', { name: '查看卡号 / CVV', exact: true }).click()
-  await expect(field('卡号')).toHaveText(privateData.card_number)
+  await expect(field('卡号')).toHaveText('4111 1111 1111 4321')
   await expect(field('CVV')).toHaveText(privateData.cvv)
   await details.getByRole('button', { name: '隐藏卡号 / CVV', exact: true }).click()
-  await expect(field('卡号')).not.toContainText(privateData.card_number)
+  await expect(field('卡号')).toHaveText('•••• •••• •••• 4321')
   await details.getByRole('button', { name: '查看卡号 / CVV', exact: true }).click()
   await expect(field('CVV')).toHaveText(privateData.cvv)
   await details.getByRole('button', { name: '关闭', exact: true }).click()

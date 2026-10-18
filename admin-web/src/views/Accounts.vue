@@ -44,6 +44,13 @@ const selectedAccount = computed(() =>
 const selectedCard = computed(() =>
   selectedAccount.value?.cards.find((card) => card.id === selectedCardId.value),
 )
+const displayCardNumber = computed(() => {
+  const number = privateDetails.value?.card_number
+  if (number) return number.match(/[0-9]{1,4}/g)?.join(' ') || number
+  return selectedCard.value?.has_card_number
+    ? `•••• •••• •••• ${selectedCard.value.last_four}`
+    : '未填写'
+})
 const managedCards = computed(() =>
   entity.value === 'account' && editing.value
     ? (accounts.value.find((account) => account.id === editing.value)?.cards ?? [])
@@ -471,31 +478,37 @@ onMounted(load)
           <dt>卡组织</dt>
           <dd>{{ optionLabel(cardNetworks, selectedCard.card_network) }}</dd>
         </div>
-        <div class="card-detail-number">
-          <dt>卡号</dt>
-          <dd class="private-value">
-            {{
-              privateDetails?.card_number ||
-              (selectedCard.has_card_number ? `•••• •••• •••• ${selectedCard.last_four}` : '未填写')
-            }}
-          </dd>
-        </div>
-        <div>
-          <dt>有效期</dt>
-          <dd>{{ selectedCard.expiry || '未填写' }}</dd>
-        </div>
-        <div>
-          <dt>CVV</dt>
-          <dd class="private-value">
-            {{ privateDetails?.cvv || (selectedCard.has_cvv ? '•••' : '未填写') }}
-          </dd>
-        </div>
+      </dl>
+      <section class="card-private-block" aria-label="卡片安全信息">
+        <dl class="card-detail-list card-private-fields">
+          <div class="card-detail-number">
+            <dt>卡号</dt>
+            <dd
+              class="private-value card-number-value"
+              :class="{ 'is-empty': !selectedCard.has_card_number }"
+            >
+              {{ displayCardNumber }}
+            </dd>
+          </div>
+          <div>
+            <dt>有效期</dt>
+            <dd>{{ selectedCard.expiry || '未填写' }}</dd>
+          </div>
+          <div>
+            <dt>CVV</dt>
+            <dd class="private-value">
+              {{ privateDetails?.cvv || (selectedCard.has_cvv ? '•••' : '未填写') }}
+            </dd>
+          </div>
+        </dl>
         <div class="private-controls" v-if="selectedCard.has_card_number || selectedCard.has_cvv">
           <el-button size="small" :loading="privateLoading" @click="revealCardDetails">{{
             privateDetails ? '隐藏卡号 / CVV' : '查看卡号 / CVV'
           }}</el-button>
           <span class="card-field-hint">敏感信息默认隐藏，请留意周围环境。</span>
         </div>
+      </section>
+      <dl class="card-detail-list">
         <div>
           <dt>还款模式</dt>
           <dd>{{ modeText(selectedAccount.mode) }}</dd>
@@ -837,8 +850,7 @@ onMounted(load)
   font-variant-numeric: tabular-nums;
   letter-spacing: 1px;
 }
-.card-detail-list .card-detail-number,
-.card-detail-list .private-controls {
+.card-detail-list .card-detail-number {
   grid-column: 1 / -1;
 }
 @media (max-width: 420px) {
@@ -939,21 +951,43 @@ onMounted(load)
   text-align: right;
   overflow-wrap: anywhere;
 }
-.card-detail-list > .card-detail-number {
+.card-private-block {
+  margin: 10px 0 2px;
+  padding: 10px 12px;
+  border: 1px solid #e0e8df;
+  border-radius: 10px;
+  background: #f2f6ef;
+}
+.card-private-fields > div {
+  padding: 6px 0;
+  border-bottom: 0;
+}
+.card-private-fields > .card-detail-number {
   justify-content: flex-start;
   gap: 16px;
-  margin-top: 8px;
-  padding: 10px 12px;
-  border: 1px solid #e5ebe4;
-  border-radius: 8px;
-  background: #f7f9f5;
+  padding: 0 0 8px;
+  border-bottom: 1px solid #e0e8df;
 }
-.card-detail-list > .private-controls {
+.card-detail-list .card-number-value:not(.is-empty) {
+  color: var(--el-color-primary);
+  font-family: Consolas, 'Liberation Mono', monospace;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+  text-align: left;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+.card-private-block .private-controls {
+  display: flex;
   align-items: center;
   justify-content: flex-start;
   flex-wrap: wrap;
   gap: 6px 10px;
-  padding: 8px 0 10px;
+  margin-top: 2px;
+  padding-top: 8px;
+  border-top: 1px solid #e0e8df;
 }
 .private-controls .card-field-hint {
   margin: 0;
@@ -1007,12 +1041,16 @@ onMounted(load)
     flex-direction: row;
     align-items: baseline;
     gap: 12px;
-    padding: 9px 10px;
+    padding: 0 0 8px;
   }
-  .card-detail-list > .private-controls {
-    flex-direction: row;
-    align-items: center;
-    gap: 6px 10px;
+  .card-private-block {
+    padding: 10px;
+  }
+  .card-private-fields > div:not(.card-detail-number) {
+    padding-block: 6px;
+  }
+  .card-detail-list .card-number-value:not(.is-empty) {
+    font-size: 18px;
   }
 }
 .card-management {
