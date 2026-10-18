@@ -18,6 +18,24 @@ const tab = ref('accounts'),
   editing = ref('')
 const deleting = ref('')
 const cardDetailsVisible = ref(false)
+const privateDetails = ref<{ card_number: string | null; cvv: string | null } | null>(null)
+const privateLoading = ref(false)
+const editorPrivateLoading = ref(false)
+let privateRequest = 0
+let editorPrivateRequest = 0
+const cardTypes = [
+  { value: 'credit', label: '信用卡' },
+  { value: 'debit', label: '借记卡' },
+]
+const cardNetworks = [
+  { value: 'unionpay', label: '银联' },
+  { value: 'visa', label: 'VISA' },
+  { value: 'mastercard', label: '万事达' },
+  { value: 'amex', label: 'AE（美国运通）' },
+]
+function optionLabel(options: { value: string; label: string }[], value?: string | null) {
+  return options.find((option) => option.value === value)?.label || '未设置'
+}
 const selectedAccountId = ref('')
 const selectedCardId = ref('')
 const selectedAccount = computed(() =>
@@ -32,11 +50,69 @@ const managedCards = computed(() =>
     : [],
 )
 function viewCard(account: Account, card: Card) {
+  privateRequest++
+  privateDetails.value = null
+  privateLoading.value = false
   selectedAccountId.value = account.id
   selectedCardId.value = card.id
   cardDetailsVisible.value = true
 }
+watch(cardDetailsVisible, (visible) => {
+  if (!visible) {
+    privateRequest++
+    privateDetails.value = null
+    privateLoading.value = false
+  }
+})
+async function revealCardDetails() {
+  if (!selectedCard.value) return
+  if (privateDetails.value) {
+    privateDetails.value = null
+    return
+  }
+  const request = ++privateRequest
+  const id = selectedCard.value.id
+  privateLoading.value = true
+  try {
+    const result = await api<{ card_number: string | null; cvv: string | null }>(
+      `/admin/cards/${id}/private`,
+      'POST',
+    )
+    if (request === privateRequest && cardDetailsVisible.value) privateDetails.value = result
+  } catch (e) {
+    if (request === privateRequest) ElMessage.error((e as Error).message)
+  } finally {
+    if (request === privateRequest) privateLoading.value = false
+  }
+}
 const form = ref<Record<string, any>>({})
+watch(dialog, (visible) => {
+  if (!visible) {
+    editorPrivateRequest++
+    editorPrivateLoading.value = false
+    form.value.card_number = undefined
+    form.value.cvv = undefined
+  }
+})
+async function loadPrivateForEdit() {
+  const target = form.value
+  const request = ++editorPrivateRequest
+  editorPrivateLoading.value = true
+  try {
+    const result = await api<{ card_number: string | null; cvv: string | null }>(
+      `/admin/cards/${editing.value}/private`,
+      'POST',
+    )
+    if (request === editorPrivateRequest && dialog.value && form.value === target) {
+      target.card_number = result.card_number || ''
+      target.cvv = result.cvv || ''
+    }
+  } catch (e) {
+    if (request === editorPrivateRequest) ElMessage.error((e as Error).message)
+  } finally {
+    if (request === editorPrivateRequest) editorPrivateLoading.value = false
+  }
+}
 const annualFeeDays = computed(() =>
   form.value.annual_fee_month ? new Date(2000, form.value.annual_fee_month, 0).getDate() : 31,
 )
@@ -71,6 +147,8 @@ async function load() {
   }
 }
 function open(kind: string, row?: any, accountId?: string) {
+  editorPrivateRequest++
+  editorPrivateLoading.value = false
   entity.value = kind
   editing.value = row?.id || ''
   form.value = row
@@ -85,6 +163,11 @@ function open(kind: string, row?: any, accountId?: string) {
         statement_day: null,
         account_id: accountId || '',
         last_four: '',
+        card_number: '',
+        expiry: '',
+        cvv: '',
+        card_type: 'credit',
+        card_network: null,
         credit_limit: null,
         annual_fee_month: null,
         annual_fee_day: null,
@@ -104,12 +187,43 @@ async function save() {
     return
   }
   const cardDetails = {
+    ...(f.card_number !== undefined
+      ? { card_number: String(f.card_number || '').replace(/[ -]/g, '') || null }
+      : {}),
+    ...(f.cvv !== undefined ? { cvv: f.cvv?.trim() || null } : {}),
+    expiry: f.expiry?.trim() || null,
+    card_type: f.card_type || null,
+    card_network: f.card_network || null,
     credit_limit: String(f.credit_limit ?? '').trim() || null,
     annual_fee_month: f.annual_fee_month || null,
     annual_fee_day: f.annual_fee_day || null,
     annual_fee_benefits: f.annual_fee_benefits?.trim() || null,
   }
   if (entity.value === 'card') {
+    if (cardDetails.card_number && !/^[0-9]{12,19}$/.test(cardDetails.card_number)) {
+      ElMessage.warning('卡号请输入 12–19 位数字，可使用空格或短横线分隔')
+      return
+    }
+    if (cardDetails.card_number) {
+      const tail = cardDetails.card_number.slice(-4)
+      if (f.last_four && f.last_four !== tail) {
+        ElMessage.warning('卡号与卡片尾号不一致，请核对')
+        return
+      }
+      f.last_four = tail
+    }
+    if (!editing.value && !/^[0-9]{4}$/.test(f.last_four || '')) {
+      ElMessage.warning('请填写 4 位卡片尾号，或填写完整卡号自动提取尾号')
+      return
+    }
+    if (cardDetails.expiry && !/^(0[1-9]|1[0-2])\/[0-9]{2}$/.test(cardDetails.expiry)) {
+      ElMessage.warning('有效期请按 MM/YY 填写，例如 09/29')
+      return
+    }
+    if (cardDetails.cvv && !/^[0-9]{3,4}$/.test(cardDetails.cvv)) {
+      ElMessage.warning('CVV 请输入 3 或 4 位数字')
+      return
+    }
     if (
       cardDetails.credit_limit !== null &&
       !/^\d{1,12}(\.\d{1,2})?$/.test(cardDetails.credit_limit)
@@ -350,6 +464,39 @@ onMounted(load)
           <dd>{{ selectedAccount.cardholder_name }}</dd>
         </div>
         <div>
+          <dt>卡片类型</dt>
+          <dd>{{ optionLabel(cardTypes, selectedCard.card_type) }}</dd>
+        </div>
+        <div>
+          <dt>卡组织</dt>
+          <dd>{{ optionLabel(cardNetworks, selectedCard.card_network) }}</dd>
+        </div>
+        <div class="card-detail-number">
+          <dt>卡号</dt>
+          <dd class="private-value">
+            {{
+              privateDetails?.card_number ||
+              (selectedCard.has_card_number ? `•••• •••• •••• ${selectedCard.last_four}` : '未填写')
+            }}
+          </dd>
+        </div>
+        <div>
+          <dt>有效期</dt>
+          <dd>{{ selectedCard.expiry || '未填写' }}</dd>
+        </div>
+        <div>
+          <dt>CVV</dt>
+          <dd class="private-value">
+            {{ privateDetails?.cvv || (selectedCard.has_cvv ? '•••' : '未填写') }}
+          </dd>
+        </div>
+        <div class="private-controls" v-if="selectedCard.has_card_number || selectedCard.has_cvv">
+          <el-button size="small" :loading="privateLoading" @click="revealCardDetails">{{
+            privateDetails ? '隐藏卡号 / CVV' : '查看卡号 / CVV'
+          }}</el-button>
+          <span class="card-field-hint">敏感信息默认隐藏，请留意周围环境。</span>
+        </div>
+        <div>
           <dt>还款模式</dt>
           <dd>{{ modeText(selectedAccount.mode) }}</dd>
         </div>
@@ -391,7 +538,12 @@ onMounted(load)
       <el-button @click="cardDetailsVisible = false">关闭</el-button>
     </template>
   </el-dialog>
-  <el-dialog v-model="dialog" :title="title" width="min(520px, 94vw)"
+  <el-dialog
+    v-model="dialog"
+    :title="title"
+    class="card-editor-dialog"
+    width="min(520px, 94vw)"
+    destroy-on-close
     ><el-form label-position="top" @submit.prevent="save"
       ><el-form-item label="名称" required
         ><el-input v-model="form.name" maxlength="80" /></el-form-item
@@ -463,8 +615,114 @@ onMounted(load)
         ><el-input
           v-model="form.last_four"
           maxlength="4"
-          placeholder="仅保存尾号，不收集完整卡号" /></el-form-item
+          placeholder="填写 4 位尾号，或填写完整卡号自动提取" /></el-form-item
       ><template v-if="entity === 'card'">
+        <div class="card-identity-fields">
+          <el-form-item label="卡片类型" for="card-type">
+            <el-select
+              id="card-type"
+              v-model="form.card_type"
+              aria-label="卡片类型"
+              clearable
+              placeholder="选择信用卡或借记卡"
+            >
+              <el-option
+                v-for="option in cardTypes"
+                :key="option.value"
+                :value="option.value"
+                :label="option.label"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="卡组织" for="card-network">
+            <el-select
+              id="card-network"
+              v-model="form.card_network"
+              aria-label="卡组织"
+              clearable
+              placeholder="选择卡组织"
+            >
+              <el-option
+                v-for="option in cardNetworks"
+                :key="option.value"
+                :value="option.value"
+                :label="option.label"
+              />
+            </el-select>
+          </el-form-item>
+        </div>
+        <el-form-item label="卡号" for="card-number">
+          <el-input
+            id="card-number"
+            v-model="form.card_number"
+            type="password"
+            show-password
+            inputmode="numeric"
+            autocomplete="off"
+            maxlength="32"
+            :disabled="editorPrivateLoading"
+            :placeholder="
+              form.has_card_number && form.card_number === undefined
+                ? '已加密保存，不修改则保留'
+                : '选填，12–19 位数字'
+            "
+          />
+          <el-button
+            v-if="form.has_card_number && form.card_number === undefined"
+            text
+            type="danger"
+            @click="form.card_number = ''"
+            >清除已保存卡号</el-button
+          >
+        </el-form-item>
+        <div class="card-identity-fields">
+          <el-form-item label="有效期" for="card-expiry">
+            <el-input
+              id="card-expiry"
+              v-model="form.expiry"
+              maxlength="5"
+              placeholder="MM/YY，例如 09/29"
+              autocomplete="off"
+            />
+          </el-form-item>
+          <el-form-item label="CVV" for="card-cvv">
+            <el-input
+              id="card-cvv"
+              v-model="form.cvv"
+              type="password"
+              show-password
+              inputmode="numeric"
+              autocomplete="off"
+              maxlength="4"
+              :disabled="editorPrivateLoading"
+              :placeholder="
+                form.has_cvv && form.cvv === undefined
+                  ? '已加密保存，不修改则保留'
+                  : '3 或 4 位安全码'
+              "
+            />
+            <el-button
+              v-if="form.has_cvv && form.cvv === undefined"
+              text
+              type="danger"
+              @click="form.cvv = ''"
+              >清除已保存 CVV</el-button
+            >
+          </el-form-item>
+        </div>
+        <div class="card-private-hint">
+          <p class="card-field-hint">
+            选填；卡号与 CVV 加密保存，需服务端配置 BILLS_MASTER_KEY。避免在公共设备查看。
+          </p>
+          <el-button
+            v-if="editing && (form.has_card_number || form.has_cvv)"
+            size="small"
+            :loading="editorPrivateLoading"
+            :disabled="saving"
+            @click="loadPrivateForEdit"
+            >读取已保存卡号 / CVV</el-button
+          >
+        </div>
         <el-form-item label="额度（元）" for="card-credit-limit">
           <el-input
             id="card-credit-limit"
@@ -530,7 +788,11 @@ onMounted(load)
         @click="remove('card', form as Card)"
         >删除卡片</el-button
       ><el-button :disabled="!!deleting" @click="dialog = false">取消</el-button
-      ><el-button type="primary" :loading="saving" :disabled="!!deleting" @click="save"
+      ><el-button
+        type="primary"
+        :loading="saving"
+        :disabled="!!deleting || editorPrivateLoading"
+        @click="save"
         >保存</el-button
       ></template
     ></el-dialog
@@ -538,6 +800,57 @@ onMounted(load)
 </template>
 
 <style scoped>
+:global(.card-editor-dialog) {
+  display: flex;
+  flex-direction: column;
+  max-height: 90dvh;
+  margin-block: 5vh;
+}
+:global(.card-editor-dialog .el-dialog__header),
+:global(.card-editor-dialog .el-dialog__footer) {
+  flex-shrink: 0;
+}
+:global(.card-editor-dialog .el-dialog__body) {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.card-identity-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+.card-identity-fields .el-select {
+  width: 100%;
+}
+.card-private-hint {
+  margin: 0 0 20px;
+  padding: 12px 14px;
+  border: 1px solid #e4e9df;
+  border-radius: 8px;
+  background: #f7f9f4;
+}
+.card-private-hint p {
+  margin: 0 0 8px;
+}
+.card-detail-list .private-value {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 1px;
+}
+.card-detail-list .card-detail-number,
+.card-detail-list .private-controls {
+  grid-column: 1 / -1;
+}
+.card-detail-list .private-controls {
+  align-items: flex-start;
+  justify-content: center;
+}
+@media (max-width: 420px) {
+  .card-identity-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 :global(.card-details-dialog) {
   display: flex;
   flex-direction: column;

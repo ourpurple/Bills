@@ -99,16 +99,49 @@ Caddyfile 是构建时复制进镜像的，必须重建网关，不能只重启�
 
 更新前保存数据和旧代码 / 镜像版本；不要在运行中的 SQLite 上直接复制主文件或跳过迁移：
 
+以下命令在 VPS **现有项目目录**执行，适用于已经通过本仓库 Compose 部署的实例。先确认 `git status --short` 没有需要保留的源码修改；有修改时先处理，不要用强制重置覆盖。每一步成功后再继续，迁移失败时保持停机并检查日志，不要直接启动新旧服务。
+
 ```sh
-docker compose stop worker api
-# 停写后另行导出 sources 目录 / 数据卷，安全保存主密钥（详见下节）
-docker compose run --rm api python -m app.cli backup --output /srv/data/backups/before-upgrade.db
+# 在子 shell 中执行，任一步失败即停止后续更新
+(
+set -eu
+umask 077
+stamp=$(date +%Y%m%d-%H%M%S)
+backup_dir="$HOME/bills-backups/$stamp"
+mkdir -p "$backup_dir"
+chmod 700 "$backup_dir"
+git rev-parse HEAD > "$backup_dir/code-revision.txt"
+cp .env "$backup_dir/.env"
+
+docker compose stop gateway worker api
+# 用旧镜像生成一致性数据库快照，再复制整个数据目录（包含 sources）到宿主机
+# api 服务容器在停止后仍存在，compose cp 不会启动它
+docker compose run --rm --no-deps api python -m app.cli backup --output "/srv/data/backups/before-upgrade-$stamp.db"
+docker compose cp api:/srv/data "$backup_dir/data"
+test -s "$backup_dir/data/backups/before-upgrade-$stamp.db"
+
+# 拉取代码、重建后端及前端；入口脚本不会自动迁移数据库
+git pull --ff-only origin main
 docker compose build
-docker compose run --rm api python -m app.cli init-db
+docker compose run --rm --no-deps api python -m app.cli init-db
 docker compose up -d
+docker compose ps
+docker compose exec api python -m alembic current
+docker compose exec api python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/health/ready').read().decode())"
+)
+# 更新后检查启动日志（如失败，也可用这条命令排查）
+docker compose logs --tail=100 api worker gateway
 ```
 
-备份文件名必须每次不同；工具拒绝覆盖已有备份。示例备份与主数据库在同一卷，**不能抵御磁盘或 VPS 损坏**。需将备份通过可信渠道加密复制到异地，异地自动化尚未实现。
+备份文件名必须每次不同；工具拒绝覆盖已有备份。上述宿主机副本包含数据库、sources 和 `.env` 中的主密钥，属于敏感资料；**同一 VPS 上的副本不能抵御磁盘或 VPS 损坏**，生产升级前还应通过可信渠道加密复制到异地。若主密钥由外部环境注入而非保存在 `.env`，还必须单独安全备份对应配置；不要将密钥发到聊天或提交到 Git。异地自动化尚未实现。整个更新过程不需要 `docker compose down`，**禁止 `docker compose down -v`**，否则会删除数据卷。
+
+### 卡片信息字段升级（2026-10-18）
+
+本次新增卡号、有效期、CVV、信用卡 / 借记卡类型及银联 / VISA / 万事达 / AE 组织选择，迁移头为 `f61c47a0d235`（上一版 `e50b36f9c124`）。按上述流程更新 API、worker 和 gateway，并确认 `alembic current` 输出该版本。仅 `git pull` 或 `docker compose restart` 不会应用这些改动。
+
+继续使用原有 `BILLS_MASTER_KEY`，不要重新生成或覆盖；卡号、CVV 与其他敏感凭证使用它加密。没有配置主密钥时，其他非敏感字段仍可使用，但保存卡号 / CVV 会被拒绝。如果此前从未配置密钥，可在服务器本地使用 `docker compose run --rm --no-deps api python -m app.cli generate-key` 首次生成并安全写入 `.env`，然后再执行迁移和启动；已有加密数据的实例不得更换密钥。
+
+升级后登录后台检查卡片新增 / 编辑、敏感信息遮蔽与主动查看、原有账户 / 账单 / 年费数据。这里的部署命令尚未在真实 VPS 执行验证。
 
 密码恢复：
 

@@ -28,6 +28,11 @@ export interface Card {
   name: string
   last_four: string
   active: boolean
+  has_card_number?: boolean
+  has_cvv?: boolean
+  expiry?: string | null
+  card_type?: 'credit' | 'debit' | null
+  card_network?: 'unionpay' | 'visa' | 'mastercard' | 'amex' | null
   credit_limit: string | null
   annual_fee_month: number | null
   annual_fee_day: number | null

@@ -94,15 +94,35 @@ class AnnualFeeUpdate(Input):
 
 
 class CardFields(AnnualFeeUpdate):
+    card_number: Annotated[str, Field(pattern=r"^[0-9]{12,19}$")] | None = Field(default=None, repr=False)
+    expiry: Annotated[str, Field(pattern=r"^(0[1-9]|1[0-2])/[0-9]{2}$")] | None = None
+    cvv: Annotated[str, Field(pattern=r"^[0-9]{3,4}$")] | None = Field(default=None, repr=False)
+    card_type: Literal["credit", "debit"] | None = None
+    card_network: Literal["unionpay", "visa", "mastercard", "amex"] | None = None
     credit_limit: Annotated[Decimal, Field(ge=0, le=Decimal("999999999999.99"), decimal_places=2)] | None = (
         None
     )
 
+    @field_validator("card_number", mode="before")
+    @classmethod
+    def normalize_card_number(cls, value):
+        return value.replace(" ", "").replace("-", "") if isinstance(value, str) else value
+
 
 class CardCreate(CardFields):
     account_id: Name
-    last_four: Annotated[str, Field(pattern=r"^\d{4}$")]
+    last_four: Annotated[str, Field(pattern=r"^[0-9]{4}$")] | None = None
     name: Name
+
+    @model_validator(mode="after")
+    def check_card_tail(self):
+        if self.card_number:
+            if self.last_four is not None and self.last_four != self.card_number[-4:]:
+                raise ValueError("卡号与卡片尾号不一致")
+            self.last_four = self.card_number[-4:]
+        if self.last_four is None:
+            raise ValueError("请填写卡片尾号或完整卡号")
+        return self
 
 
 class CardUpdate(CardFields):

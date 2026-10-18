@@ -417,7 +417,7 @@ test('card credit limit and annual fee details persist, validate and clear', asy
   await tile.getByRole('button', { name: '添加卡片', exact: true }).click()
   const creator = page.getByRole('dialog', { name: '新增卡片', exact: true })
   await creator.getByRole('textbox').first().fill('新卡')
-  await creator.getByPlaceholder('仅保存尾号，不收集完整卡号').fill('5678')
+  await creator.getByPlaceholder('填写 4 位尾号，或填写完整卡号自动提取').fill('5678')
   await creator.getByLabel('额度（元）', { exact: true }).fill('0')
   await creator.getByLabel('年费优惠信息', { exact: true }).fill('终身免年费')
   await creator.getByRole('button', { name: '保存', exact: true }).click()
@@ -443,21 +443,23 @@ test('card chips open read-only details with empty, disabled, zero-limit and mob
       .filter({ has: page.locator('dt').filter({ hasText: new RegExp(`^${name}$`) }) })
       .locator('dd')
   async function expectTwoColumnLayout() {
-    const cells = await details.locator('.card-detail-list > div').evaluateAll((elements) =>
-      elements.map((element) => {
-        const rect = element.getBoundingClientRect()
-        return { x: rect.x, y: rect.y, right: rect.right, width: rect.width }
-      }),
-    )
-    expect(cells).toHaveLength(7)
-    for (let index = 0; index < 6; index += 2) {
+    const cells = await details
+      .locator('.card-detail-list > div:not(.card-detail-number):not(.private-controls)')
+      .evaluateAll((elements) =>
+        elements.map((element) => {
+          const rect = element.getBoundingClientRect()
+          return { x: rect.x, y: rect.y, right: rect.right, width: rect.width }
+        }),
+      )
+    expect(cells).toHaveLength(11)
+    for (let index = 0; index < 10; index += 2) {
       expect(Math.abs(cells[index].y - cells[index + 1].y)).toBeLessThan(1)
       expect(cells[index + 1].x).toBeGreaterThan(cells[index].right)
       expect(Math.abs(cells[index].width - cells[index + 1].width)).toBeLessThan(1)
     }
-    expect(cells[6].x).toBe(cells[0].x)
-    expect(Math.abs(cells[6].right - cells[1].right)).toBeLessThan(1)
-    expect(cells[6].y).toBeGreaterThan(cells[5].y)
+    expect(cells[10].x).toBe(cells[0].x)
+    expect(Math.abs(cells[10].right - cells[1].right)).toBeLessThan(1)
+    expect(cells[10].y).toBeGreaterThan(cells[9].y)
   }
   let mutations = 0
   page.on('request', (request) => {
@@ -597,4 +599,151 @@ test('card chips open read-only details with empty, disabled, zero-limit and mob
   await expect(manager.getByText('零额度备用卡 · 6789', { exact: true })).toHaveCount(0)
   expect(mutations).toBe(1)
   expect(errors).toEqual([])
+})
+
+test('card identity fields validate, stay private, persist and clear', async ({
+  page,
+}, testInfo) => {
+  const { tile, card, headers } = await setup(page, '卡片身份信息测试')
+  const editor = page.getByRole('dialog', { name: '编辑卡片', exact: true })
+  const details = page.getByRole('dialog', { name: '卡片详情', exact: true })
+  const field = (name: string) =>
+    details
+      .locator('dl > div')
+      .filter({ has: page.locator('dt').filter({ hasText: new RegExp(`^${name}$`) }) })
+      .locator('dd')
+  const privatePath = `/api/v1/admin/cards/${card.id}/private`
+  const privateData = { card_number: '4111111111114321', cvv: '012' }
+  let reads = 0
+  page.on('request', (request) => {
+    if (request.url().endsWith('/private')) reads++
+  })
+  await openCardEditor(page, tile)
+  await editor.getByLabel('卡号', { exact: true }).fill('123')
+  await editor.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(
+    page.getByText('卡号请输入 12–19 位数字，可使用空格或短横线分隔', { exact: true }),
+  ).toBeVisible()
+  await editor.getByLabel('卡号', { exact: true }).fill('4111 1111 1111 4321')
+  await editor.getByLabel('有效期', { exact: true }).fill('13/29')
+  await editor.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(page.getByText('有效期请按 MM/YY 填写，例如 09/29', { exact: true })).toBeVisible()
+  await editor.getByLabel('有效期', { exact: true }).fill('09/29')
+  await editor.getByLabel('CVV', { exact: true }).fill('01')
+  await editor.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(page.getByText('CVV 请输入 3 或 4 位数字', { exact: true })).toBeVisible()
+  await editor.getByLabel('CVV', { exact: true }).fill(privateData.cvv)
+  await editor.locator('.card-identity-fields .el-select').first().click()
+  await page.getByRole('option', { name: '借记卡', exact: true }).click()
+  await editor.locator('.card-identity-fields .el-select').last().click()
+  for (const name of ['银联', 'VISA', '万事达', 'AE（美国运通）']) {
+    await expect(page.getByRole('option', { name, exact: true })).toBeVisible()
+  }
+  await page.getByRole('option', { name: 'VISA', exact: true }).click()
+  await expect(editor.getByLabel('卡号', { exact: true })).toHaveAttribute('type', 'password')
+  await expect(editor.getByLabel('CVV', { exact: true })).toHaveAttribute('type', 'password')
+  await editor.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(editor).not.toBeVisible()
+  expect(reads).toBe(0)
+  await tile.getByRole('button', { name: '待删除银行卡 · 4321', exact: true }).click()
+  await expect(field('卡片类型')).toHaveText('借记卡')
+  await expect(field('卡组织')).toHaveText('VISA')
+  await expect(field('有效期')).toHaveText('09/29')
+  await expect(field('卡号')).toContainText('••••')
+  await expect(field('CVV')).toHaveText('•••')
+  expect(reads).toBe(0)
+  await details.getByRole('button', { name: '查看卡号 / CVV', exact: true }).click()
+  await expect(field('卡号')).toHaveText(privateData.card_number)
+  await expect(field('CVV')).toHaveText(privateData.cvv)
+  await details.getByRole('button', { name: '隐藏卡号 / CVV', exact: true }).click()
+  await expect(field('卡号')).not.toContainText(privateData.card_number)
+  await details.getByRole('button', { name: '查看卡号 / CVV', exact: true }).click()
+  await expect(field('CVV')).toHaveText(privateData.cvv)
+  await details.getByRole('button', { name: '关闭', exact: true }).click()
+  await tile.getByRole('button', { name: '待删除银行卡 · 4321', exact: true }).click()
+  await expect(field('CVV')).toHaveText('•••')
+  await details.getByRole('button', { name: '关闭', exact: true }).click()
+  await page.reload()
+  await openCardEditor(page, tile)
+  await expect(editor.getByLabel('卡号', { exact: true })).toHaveValue('')
+  await expect(editor.getByLabel('CVV', { exact: true })).toHaveValue('')
+  await editor.getByLabel('额度（元）', { exact: true }).fill('5000')
+  await editor.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(editor).not.toBeVisible()
+  expect(await (await page.request.post(privatePath, { headers })).json()).toEqual(privateData)
+  await openCardEditor(page, tile)
+  await editor.getByRole('button', { name: '读取已保存卡号 / CVV', exact: true }).click()
+  await expect(editor.getByLabel('卡号', { exact: true })).toHaveValue(privateData.card_number)
+  await expect(editor.getByLabel('CVV', { exact: true })).toHaveValue(privateData.cvv)
+  await expect(editor.getByLabel('有效期', { exact: true })).toHaveValue('09/29')
+  await editor.locator('.el-dialog__body').evaluate((body) => {
+    body.scrollTop = 0
+  })
+  await editor.screenshot({
+    path: testInfo.outputPath('card-identity-desktop.png'),
+    animations: 'disabled',
+  })
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 })
+    const bounds = await editor.boundingBox()
+    expect(bounds!.x).toBeGreaterThanOrEqual(0)
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width)
+    await expect(editor.getByRole('button', { name: '保存', exact: true })).toBeInViewport()
+  }
+  await editor.locator('.el-dialog__body').evaluate((body) => {
+    body.scrollTop = 0
+  })
+  await editor.screenshot({
+    path: testInfo.outputPath('card-identity-mobile.png'),
+    animations: 'disabled',
+  })
+  await editor.getByLabel('卡号', { exact: true }).fill('')
+  await editor.getByLabel('CVV', { exact: true }).fill('')
+  await editor.getByLabel('有效期', { exact: true }).fill('')
+  await editor.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(editor).not.toBeVisible()
+  expect(await (await page.request.post(privatePath, { headers })).json()).toEqual({
+    card_number: null,
+    cvv: null,
+  })
+})
+
+test('new card derives its tail and supports every card network', async ({ page }) => {
+  const { tile, account, card, headers } = await setup(page, '新增完整卡信息测试')
+  await page.request.patch(`/api/v1/admin/cards/${card.id}`, {
+    headers,
+    data: { name: card.name, active: false },
+  })
+  await tile.getByRole('button', { name: '添加卡片', exact: true }).click()
+  const creator = page.getByRole('dialog', { name: '新增卡片', exact: true })
+  await creator.getByRole('textbox').first().fill('完整卡信息测试卡')
+  await creator.getByLabel('卡号', { exact: true }).fill('3782 822463 10005')
+  await creator.getByLabel('有效期', { exact: true }).fill('12/30')
+  await creator.getByLabel('CVV', { exact: true }).fill('0001')
+  await creator.locator('.card-identity-fields .el-select').last().click()
+  await page.getByRole('option', { name: 'AE（美国运通）', exact: true }).click()
+  await creator.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(creator).not.toBeVisible()
+  await expect(
+    tile.getByRole('button', { name: '完整卡信息测试卡 · 0005', exact: true }),
+  ).toBeVisible()
+  const accounts = await (await page.request.get('/api/v1/admin/accounts')).json()
+  const saved = accounts.items
+    .find((a: { id: string }) => a.id === account.id)
+    .cards.find((c: { last_four: string }) => c.last_four === '0005')
+  expect(saved).toMatchObject({
+    card_type: 'credit',
+    card_network: 'amex',
+    expiry: '12/30',
+    has_card_number: true,
+    has_cvv: true,
+  })
+  for (const card_network of ['unionpay', 'visa', 'mastercard', 'amex']) {
+    const response = await page.request.patch(`/api/v1/admin/cards/${saved.id}`, {
+      headers,
+      data: { name: saved.name, active: true, card_network },
+    })
+    expect(response.status()).toBe(200)
+    expect((await response.json()).card_network).toBe(card_network)
+  }
 })

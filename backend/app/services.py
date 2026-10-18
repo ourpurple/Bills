@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import and_, case, func, or_, select
 
 from .core import DomainError, utc_naive
+from .mail_crypto import decrypt_secret, encrypt_secret
 from .models import (
     Account,
     AccountGroup,
@@ -105,8 +106,21 @@ def account_enabled(db, account):
     )
 
 
-def card_values(data):
+def card_values(data, settings, existing=None):
     values = data.model_dump(exclude_unset=True)
+    number = values.get("card_number")
+    if number and existing is not None and number[-4:] != existing.last_four:
+        raise DomainError("CARD_TAIL_MISMATCH", "卡号与原卡片尾号不一致，请核对或新建卡片")
+    if existing is None:
+        values["last_four"] = data.last_four
+    for name in ("card_number", "cvv"):
+        if name in values:
+            value = values.pop(name)
+            if value and not settings.master_key:
+                raise DomainError(
+                    "MASTER_KEY_REQUIRED", "请先配置 BILLS_MASTER_KEY，卡号和 CVV 不能明文保存", 503
+                )
+            values[f"{name}_ciphertext"] = encrypt_secret(settings, value) if value else None
     if "credit_limit" in values:
         values["credit_limit_minor"] = minor(values.pop("credit_limit"), "CNY")
     return values
@@ -119,11 +133,25 @@ def card_view(card):
         name=card.name,
         last_four=card.last_four,
         active=card.active,
+        has_card_number=bool(card.card_number_ciphertext),
+        has_cvv=bool(card.cvv_ciphertext),
+        expiry=card.expiry,
+        card_type=card.card_type,
+        card_network=card.card_network,
         credit_limit=money(card.credit_limit_minor, "CNY"),
         annual_fee_month=card.annual_fee_month,
         annual_fee_day=card.annual_fee_day,
         annual_fee_benefits=card.annual_fee_benefits,
     )
+
+
+def card_private_view(card, settings):
+    return {
+        name: decrypt_secret(settings, getattr(card, f"{name}_ciphertext"))
+        if getattr(card, f"{name}_ciphertext")
+        else None
+        for name in ("card_number", "cvv")
+    }
 
 
 def account_view(db, account):

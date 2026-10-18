@@ -382,16 +382,22 @@ def create_app(settings: Settings | None = None):
     ):
         row = service.require(db, Account, object_id)
         if db.scalar(select(Statement.id).where(Statement.account_id == row.id).limit(1)):
-            raise DomainError("ACCOUNT_HAS_STATEMENTS", "该账户有关联账单，不能删除。请停用账户以保留历史记录。", 409)
+            raise DomainError(
+                "ACCOUNT_HAS_STATEMENTS", "该账户有关联账单，不能删除。请停用账户以保留历史记录。", 409
+            )
         if db.scalar(select(ModelCandidate.id).where(ModelCandidate.account_id == row.id).limit(1)):
-            raise DomainError("ACCOUNT_HAS_CANDIDATES", "该账户有关联导入记录，不能删除。请停用账户以保留历史记录。", 409)
+            raise DomainError(
+                "ACCOUNT_HAS_CANDIDATES", "该账户有关联导入记录，不能删除。请停用账户以保留历史记录。", 409
+            )
         cards = db.scalars(select(Card).where(Card.account_id == row.id)).all()
         for card in cards:
             audit(db, actor.id, "card.deleted", card.id, json.dumps({"account_id": row.id}))
             db.delete(card)
         # Flush children first; SQLite enforces foreign keys immediately.
         db.flush()
-        audit(db, actor.id, "account.deleted", row.id, json.dumps({"name": row.name, "card_count": len(cards)}))
+        audit(
+            db, actor.id, "account.deleted", row.id, json.dumps({"name": row.name, "card_count": len(cards)})
+        )
         db.delete(row)
         return {"deleted": True, "id": object_id}
 
@@ -408,7 +414,7 @@ def create_app(settings: Settings | None = None):
             select(Card.id).where(Card.account_id == account.id, Card.active.is_(True))
         ):
             raise DomainError("INDEPENDENT_CARD_LIMIT", "独立还款账户只能有一张有效卡，请新建还款账户")
-        row = Card(**service.card_values(data))
+        row = Card(**service.card_values(data, settings))
         db.add(row)
         db.flush()
         audit(db, actor.id, "card.created", row.id)
@@ -433,10 +439,25 @@ def create_app(settings: Settings | None = None):
             raise DomainError("INDEPENDENT_CARD_LIMIT", "独立还款账户已有关联有效卡")
         if data.active and not service.account_enabled(db, account):
             raise DomainError("INACTIVE_PARENT", "账户或上级资料已停用")
-        for key, value in service.card_values(data).items():
+        for key, value in service.card_values(data, settings, row).items():
             setattr(row, key, value)
         audit(db, actor.id, "card.updated", row.id)
         return service.card_view(row)
+
+    @app.post("/api/v1/admin/cards/{object_id}/private")
+    def card_private(
+        object_id: str,
+        response: Response,
+        db=Depends(get_db, scope="function"),
+        actor=Depends(administrator, scope="function"),
+    ):
+        # Revealing a secret writes an audit event, so use POST for CSRF protection
+        # and the existing BEGIN IMMEDIATE transaction policy (avoid SQLite read/write upgrades).
+        row = service.require(db, Card, object_id)
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
+        audit(db, actor.id, "card.private_viewed", row.id)
+        return service.card_private_view(row, settings)
 
     @app.patch("/api/v1/admin/cards/{object_id}/annual-fee")
     def update_card_annual_fee(
