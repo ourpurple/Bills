@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Edit, Plus, Refresh } from '@element-plus/icons-vue'
+import { ArrowRight, Edit, Plus, Refresh } from '@element-plus/icons-vue'
 import { api, allItems } from '../api'
 import { amountText, modeText, type Bank, type Holder, type Account, type Card } from '../types'
 const banks = ref<Bank[]>([]),
@@ -37,7 +37,7 @@ const cardRows = computed(() =>
     )
     .flatMap((account) => account.cards.map((card) => ({ ...card, account }))),
 )
-const tab = ref('accounts'),
+const tab = ref('cards'),
   loading = ref(false),
   dialog = ref(false),
   saving = ref(false),
@@ -128,6 +128,20 @@ const filteredCardRows = computed(() => {
       (!filters.status || cardStatus(row) === filters.status),
   )
 })
+const cardCollection = computed(() => ({
+  banks: new Set(cardRows.value.map((row) => row.account.bank_id)).size,
+  holders: new Set(cardRows.value.map((row) => row.account.cardholder_id)).size,
+  active: cardRows.value.filter((row) => cardStatus(row) === 'active').length,
+}))
+function cardRowClass({ row, rowIndex }: { row: CardRow; rowIndex: number }) {
+  const previous = filteredCardRows.value[rowIndex - 1]
+  return [
+    cardStatus(row) !== 'active' ? 'is-inactive' : '',
+    previous && previous.account.bank_id !== row.account.bank_id ? 'bank-group-start' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+}
 function resetCardFilters() {
   cardFilters.value = emptyCardFilters()
 }
@@ -426,6 +440,21 @@ onMounted(load)
   <section class="panel padded" v-loading="loading">
     <el-tabs v-model="tab">
       <el-tab-pane label="账户列表" name="cards">
+        <div class="card-collection-heading">
+          <div>
+            <div class="card-collection-title">
+              <h2>银行卡一览</h2>
+              <span class="card-count">{{ cardRows.length }} 张</span>
+            </div>
+            <p>
+              {{ cardCollection.banks }} 家银行<span aria-hidden="true"> · </span
+              >{{ cardCollection.holders }} 位持卡人
+            </p>
+          </div>
+          <span class="collection-active-count"
+            ><i aria-hidden="true" />{{ cardCollection.active }} 张有效卡片</span
+          >
+        </div>
         <div class="card-list-filters" role="group" aria-label="银行卡筛选">
           <div v-for="field in cardFilterFields" :key="field.key" class="card-list-filter">
             <span class="card-filter-label">{{ field.label }}</span>
@@ -452,6 +481,7 @@ onMounted(load)
             {{ filteredCardRows.length }} 张，卡号仅展示后四位。
           </p>
           <p v-else>共 {{ cardRows.length }} 张银行卡（含停用卡片），卡号仅展示后四位。</p>
+          <span class="card-sort-note">按银行 / 持卡人排序</span>
         </div>
         <el-empty
           v-if="!cardRows.length"
@@ -460,54 +490,86 @@ onMounted(load)
         <el-empty v-else-if="!filteredCardRows.length" description="暂无符合筛选条件的银行卡。">
           <el-button @click="resetCardFilters">清空筛选</el-button>
         </el-empty>
-        <el-table v-else :data="filteredCardRows" row-key="id" class="bank-card-table">
+        <el-table
+          v-else
+          :data="filteredCardRows"
+          :row-class-name="cardRowClass"
+          row-key="id"
+          class="bank-card-table"
+        >
           <el-table-column label="银行" min-width="150">
             <template #default="{ row }">
               <div class="bank-card-bank">
                 <div class="bank-badge" :class="row.account.bank_code" aria-hidden="true">
                   {{ row.account.bank_name.slice(0, 1) }}
                 </div>
-                <span>{{ row.account.bank_name }}</span>
+                <span class="bank-card-name">{{ row.account.bank_name }}</span>
               </div>
             </template>
           </el-table-column>
           <el-table-column label="持卡人" min-width="110">
-            <template #default="{ row }">{{ row.account.cardholder_name }}</template>
-          </el-table-column>
-          <el-table-column prop="name" label="卡种" min-width="160" />
-          <el-table-column label="卡号后四位" width="110">
             <template #default="{ row }"
-              ><span class="card-tail">{{ row.last_four }}</span></template
+              ><span class="card-holder-label">{{ row.account.cardholder_name }}</span></template
+            >
+          </el-table-column>
+          <el-table-column prop="name" label="卡种" min-width="170">
+            <template #default="{ row }"
+              ><span class="card-product-name">{{ row.name }}</span></template
+            >
+          </el-table-column>
+          <el-table-column label="卡号后四位" width="124">
+            <template #default="{ row }"
+              ><span class="card-number-tail"
+                ><span aria-hidden="true" class="card-number-mask">••</span
+                ><span>{{ row.last_four }}</span></span
+              ></template
             >
           </el-table-column>
           <el-table-column label="卡类型" width="100">
-            <template #default="{ row }">{{ optionLabel(cardTypes, row.card_type) }}</template>
+            <template #default="{ row }"
+              ><span class="card-type-label" :class="{ 'is-unset': !row.card_type }">{{
+                optionLabel(cardTypes, row.card_type)
+              }}</span></template
+            >
           </el-table-column>
           <el-table-column label="卡组织" min-width="150">
-            <template #default="{ row }">{{
-              optionLabel(cardNetworks, row.card_network)
-            }}</template>
+            <template #default="{ row }"
+              ><span class="card-network-label" :class="row.card_network || 'is-unset'">{{
+                optionLabel(cardNetworks, row.card_network)
+              }}</span></template
+            >
           </el-table-column>
-          <el-table-column label="所属账户" min-width="160">
-            <template #default="{ row }">{{ row.account.name }}</template>
+          <el-table-column label="所属账户" min-width="140">
+            <template #default="{ row }"
+              ><span class="card-account-name">{{ row.account.name }}</span></template
+            >
           </el-table-column>
-          <el-table-column label="状态" min-width="140">
+          <el-table-column label="状态" min-width="150">
             <template #default="{ row }">
-              <el-tag
-                size="small"
-                :type="!row.active || !row.account.effective_active ? 'info' : 'success'"
-                >{{ optionLabel(cardStatuses, cardStatus(row)) }}</el-tag
-              >
+              <span class="card-status-label" :class="cardStatus(row)">
+                <i aria-hidden="true" />{{ optionLabel(cardStatuses, cardStatus(row)) }}
+              </span>
             </template>
           </el-table-column>
           <el-table-column label="追踪账单" width="100">
-            <template #default="{ row }">{{ row.track_bills === false ? '否' : '是' }}</template>
+            <template #default="{ row }"
+              ><span
+                class="card-tracking-label"
+                :class="{ 'is-untracked': row.track_bills === false }"
+                >{{ row.track_bills === false ? '否' : '是' }}</span
+              ></template
+            >
           </el-table-column>
-          <el-table-column label="操作" fixed="right" width="116">
+          <el-table-column label="操作" fixed="right" width="126">
             <template #default="{ row }">
-              <el-button text type="primary" @click="viewCard(row.account, row)"
-                >卡片详情</el-button
+              <el-button
+                class="card-details-action"
+                plain
+                type="primary"
+                @click="viewCard(row.account, row)"
               >
+                卡片详情<el-icon aria-hidden="true"><ArrowRight /></el-icon>
+              </el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -1492,11 +1554,130 @@ onMounted(load)
   line-height: 1.6;
 }
 
+.card-collection-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 2px 20px;
+}
+.card-collection-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.card-collection-title h2 {
+  font-size: 20px;
+  letter-spacing: 1px;
+  color: #263f34;
+}
+.card-count {
+  padding: 3px 9px;
+  border-radius: 6px;
+  background: #eef2e9;
+  color: #55705b;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.card-collection-heading p {
+  margin: 7px 0 0;
+  font-size: 12px;
+  color: #6b7968;
+}
+.collection-active-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: #53745e;
+  white-space: nowrap;
+}
+.collection-active-count i,
+.card-status-label i {
+  flex: 0 0 5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.card-list-filters {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
+  align-items: end;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #e6e9df;
+  border-radius: 10px;
+  background: #f6f7f1;
+}
+.card-list-filter {
+  min-width: 0;
+}
+.card-filter-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #596b5c;
+  font-weight: 500;
+}
+.card-list-filter .el-select {
+  width: 100%;
+}
+.card-list-filter :deep(.el-select__wrapper) {
+  min-height: 36px;
+  background: #fffefa;
+}
+.card-list-toolbar {
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 18px 2px 14px;
+}
+.card-list-toolbar p {
+  margin: 0;
+  color: #697764;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.card-sort-note {
+  color: #6c7966;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
 .bank-card-table {
   width: 100%;
+  border: 1px solid #e1e6dc;
+  border-radius: 10px;
+  --el-table-header-bg-color: #edf1e7;
+  --el-table-header-text-color: #60745d;
+  --el-table-text-color: #3d5146;
+  --el-table-border-color: #e7ebe2;
+  --el-table-tr-bg-color: #fffefa;
+  --el-table-row-hover-bg-color: #f0f5eb;
+}
+.bank-card-table :deep(.el-table__inner-wrapper::before) {
+  display: none;
+}
+.bank-card-table :deep(th.el-table__cell) {
+  height: 44px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.bank-card-table :deep(td.el-table__cell) {
+  height: 68px;
+  padding-block: 12px;
 }
 .bank-card-table :deep(.cell) {
   overflow-wrap: anywhere;
+  padding-inline: 14px;
+}
+.bank-card-table :deep(.bank-group-start td.el-table__cell) {
+  border-top: 2px solid #dce4d6;
+}
+.bank-card-table :deep(.is-inactive) {
+  --el-table-tr-bg-color: #f8f9f5;
+  --el-table-text-color: #687365;
 }
 .bank-card-bank {
   display: flex;
@@ -1504,46 +1685,161 @@ onMounted(load)
   gap: 10px;
 }
 .bank-card-bank .bank-badge {
-  flex: 0 0 30px;
-  width: 30px;
-  height: 30px;
-  font-size: 17px;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  font-size: 18px;
+  box-shadow: inset 0 0 0 1px rgb(65 84 60 / 5%);
 }
-.card-list-filters {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
-  align-items: end;
-  gap: 12px;
-  margin: 4px 0 16px;
-}
-.card-list-filter {
-  min-width: 0;
-}
-.card-filter-label {
-  display: block;
-  margin-bottom: 6px;
+.bank-card-name {
   font-size: 13px;
-  color: var(--el-text-color-regular);
+  font-weight: 600;
 }
-.card-list-filter .el-select {
-  width: 100%;
+.card-holder-label {
+  display: inline-block;
+  padding: 3px 8px;
+  border: 1px solid #e6e9df;
+  border-radius: 5px;
+  font-size: 12px;
+  background: #f7f8f2;
 }
-@media (max-width: 900px) {
+.card-product-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+.card-number-tail {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 7px;
+  border: 1px solid #e0e7da;
+  border-radius: 5px;
+  background: #f4f7ef;
+  color: #385340;
+  font-family: Consolas, 'SFMono-Regular', monospace;
+  font-size: 15px;
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+.card-number-mask {
+  color: #a6b19c;
+  font-size: 10px;
+  letter-spacing: 0;
+}
+.card-type-label,
+.card-network-label {
+  display: inline-block;
+  font-size: 12px;
+}
+.card-type-label {
+  color: #61725d;
+}
+.card-network-label {
+  padding: 2px 7px;
+  border: 1px solid #e5e7df;
+  border-radius: 4px;
+  color: #5e6c59;
+  font-weight: 500;
+  background: #fafbf6;
+}
+.card-network-label.visa {
+  color: #425e87;
+  border-color: #dfe5ed;
+  background: #f2f5f9;
+}
+.card-network-label.mastercard {
+  color: #8d5832;
+  border-color: #ede2d5;
+  background: #faf5ee;
+}
+.card-network-label.amex {
+  color: #477a79;
+  border-color: #dbe8e5;
+  background: #f0f7f5;
+}
+.card-type-label.is-unset,
+.card-network-label.is-unset {
+  color: #687561;
+  font-weight: 400;
+}
+.card-network-label.is-unset {
+  padding: 0;
+  border-color: transparent;
+  background: none;
+}
+.card-account-name {
+  color: #687563;
+  font-size: 12px;
+}
+.card-status-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: #edf4e9;
+  color: #486d39;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.card-status-label.inactive,
+.card-status-label.account_inactive {
+  background: #eff0ec;
+  color: #5b7060;
+}
+.card-tracking-label {
+  display: inline-block;
+  min-width: 28px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  text-align: center;
+  font-size: 12px;
+  color: #687861;
+  background: #eff3e9;
+}
+.card-tracking-label.is-untracked {
+  color: #526f7d;
+  background: #edf4f6;
+}
+.card-details-action {
+  --el-button-bg-color: #fffefa;
+  --el-button-border-color: #cfdbcb;
+  --el-button-text-color: #3c6148;
+  gap: 5px;
+  height: 29px;
+  padding-inline: 10px;
+  font-size: 12px;
+}
+.card-details-action .el-icon {
+  margin-left: 5px;
+  font-size: 12px;
+}
+@media (max-width: 1100px) {
   .card-list-filters {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 @media (max-width: 600px) {
+  .card-collection-heading {
+    flex-wrap: wrap;
+    gap: 10px;
+    padding-bottom: 16px;
+  }
+  .card-collection-title h2 {
+    font-size: 18px;
+  }
   .card-list-filters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 12px;
+    gap: 12px 10px;
   }
-}
-.card-list-toolbar {
-  flex-wrap: wrap;
-  gap: 12px;
-}
-.card-list-toolbar p {
-  margin: 0;
+  .card-list-toolbar {
+    padding-block: 12px;
+  }
+  .card-sort-note {
+    display: none;
+  }
 }
 
 .account-list {

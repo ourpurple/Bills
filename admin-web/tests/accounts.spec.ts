@@ -38,6 +38,7 @@ async function setup(page: Page, name: string, history = false) {
       })
     : null
   await page.getByRole('link', { name: '账户与卡片' }).click()
+  await page.getByRole('tab', { name: '账户管理', exact: true }).click()
   const tile = page
     .locator('.account-card')
     .filter({ has: page.getByRole('heading', { name, exact: true }) })
@@ -98,6 +99,7 @@ test('delete account: cancel, confirmation, children removed and persistence on 
   })
   expect(staleCard.status()).toBe(404)
   await page.reload()
+  await page.getByRole('tab', { name: '账户管理', exact: true }).click()
   await expect(page.getByRole('heading', { name: '卡片有归属，账单不重复。' })).toBeVisible()
   await expect(tile).toHaveCount(0)
   expect(errors).toEqual([])
@@ -134,6 +136,7 @@ test('delete bank card preserves history and account with history cannot be dele
   await expect(tile).toBeVisible()
   await expect(tile.getByRole('button', { name: '删除', exact: true })).toBeEnabled()
   await page.reload()
+  await page.getByRole('tab', { name: '账户管理', exact: true }).click()
   await expect(tile).toBeVisible()
   const accounts = await (await page.request.get('/api/v1/admin/accounts')).json()
   expect(accounts.items.find((a: { id: string }) => a.id === account.id).cards).toEqual([])
@@ -234,6 +237,7 @@ test('compact account rows align on desktop and fit narrow screens', async ({ pa
   })
   await page.setViewportSize({ width: 1600, height: 1000 })
   await page.goto('/accounts')
+  await page.getByRole('tab', { name: '账户管理', exact: true }).click()
   const rows = page.locator('.account-card')
   await expect(rows).toHaveCount(fixtures.length)
   await expect(page.locator('.account-list-header')).toBeVisible()
@@ -311,6 +315,7 @@ test('compact account rows align on desktop and fit narrow screens', async ({ pa
   await page.getByRole('button', { name: '刷新', exact: true }).click()
   await expect(rows.locator('h3')).toHaveText(expectedOrder)
   await page.reload()
+  await page.getByRole('tab', { name: '账户管理', exact: true }).click()
   await expect(rows.locator('h3')).toHaveText(expectedOrder)
   for (const [name, day] of [
     ['臻享白', 31],
@@ -325,6 +330,7 @@ test('compact account rows align on desktop and fit narrow screens', async ({ pa
   const updatedOrder = [5, 1, 4, 6, 2, 3, 0].map((index) => fixtures[index].name)
   await expect(rows.locator('h3')).toHaveText(updatedOrder)
   await page.reload()
+  await page.getByRole('tab', { name: '账户管理', exact: true }).click()
   await expect(rows.locator('h3')).toHaveText(updatedOrder)
   empty = true
   await page.getByRole('button', { name: '刷新', exact: true }).click()
@@ -380,6 +386,7 @@ test('card credit limit and annual fee details persist, validate and clear', asy
     annual_fee_benefits: benefits,
   })
   await page.reload()
+  await page.getByRole('tab', { name: '账户管理', exact: true }).click()
   await openCard()
   await expect(editor.getByLabel('额度（元）', { exact: true })).toHaveValue('80000.50')
   await expect(editor.locator('.annual-fee-date .el-select').first()).toContainText('2 月')
@@ -424,6 +431,7 @@ test('card credit limit and annual fee details persist, validate and clear', asy
   await expect(creator).not.toBeVisible()
   await expect(tile.getByRole('button', { name: '新卡 · 5678', exact: true })).toBeVisible()
   await page.reload()
+  await page.getByRole('tab', { name: '账户管理', exact: true }).click()
   await openCardEditor(page, tile, '新卡')
   await expect(editor.getByLabel('额度（元）', { exact: true })).toHaveValue('0.00')
   await expect(editor.getByLabel('年费优惠信息', { exact: true })).toHaveValue('终身免年费')
@@ -519,6 +527,7 @@ test('card chips open read-only details with empty, disabled, zero-limit and mob
     ).status(),
   ).toBe(200)
   await page.reload()
+  await page.getByRole('tab', { name: '账户管理', exact: true }).click()
   const inactiveChip = tile.getByRole('button', {
     name: '待删除银行卡 · 4321（停用）',
     exact: true,
@@ -586,6 +595,7 @@ test('card chips open read-only details with empty, disabled, zero-limit and mob
   })
   expect(created.status()).toBe(201)
   await page.reload()
+  await page.getByRole('tab', { name: '账户管理', exact: true }).click()
   await tile.getByRole('button', { name: '零额度备用卡 · 6789', exact: true }).click()
   await expect(details.getByRole('heading', { name: '零额度备用卡', exact: true })).toBeVisible()
   await expect(field('额度')).toHaveText('¥ 0.00')
@@ -642,6 +652,7 @@ test('card details keep complete information compact without clipping on desktop
     ).status(),
   ).toBe(200)
   await page.reload()
+  await page.getByRole('tab', { name: '账户管理', exact: true }).click()
   await tile.getByRole('button', { name: 'VISA · 4321', exact: true }).click()
   const details = page.getByRole('dialog', { name: '卡片详情', exact: true })
   const panel = details.locator('.card-details-dialog')
@@ -706,6 +717,7 @@ test('card numbers are larger, colored and grouped every four digits without cha
       ).status(),
     ).toBe(200)
     await page.reload()
+    await page.getByRole('tab', { name: '账户管理', exact: true }).click()
     await tile.getByRole('button', { name: '待删除银行卡 · 4321', exact: true }).click()
     await expect(numberValue).toHaveText('•••• •••• •••• 4321')
     await details.getByRole('button', { name: '查看卡号 / CVV', exact: true }).click()
@@ -819,6 +831,7 @@ test('card identity fields validate, stay private, persist and clear', async ({
   await expect(field('CVV')).toHaveText('•••')
   await details.getByRole('button', { name: '关闭', exact: true }).click()
   await page.reload()
+  await page.getByRole('tab', { name: '账户管理', exact: true }).click()
   await openCardEditor(page, tile)
   await expect(editor.getByLabel('卡号', { exact: true })).toHaveValue('')
   await expect(editor.getByLabel('CVV', { exact: true })).toHaveValue('')
@@ -953,6 +966,7 @@ test('bill tracking persists independently of validity and gates billing', async
     await editor.getByRole('button', { name: '保存', exact: true }).click()
     await expect(editor).not.toBeVisible()
     await page.reload()
+    await page.getByRole('tab', { name: '账户管理', exact: true }).click()
     const saved = (await (await page.request.get('/api/v1/admin/accounts')).json()).items.find(
       (a: { id: string }) => a.id === account.id,
     )
@@ -999,6 +1013,7 @@ test('bill tracking persists independently of validity and gates billing', async
     ).status(),
   ).toBe(200)
   await page.reload()
+  await page.getByRole('tab', { name: '账户管理', exact: true }).click()
   await tile.getByRole('button', { name: '添加卡片', exact: true }).click()
   const creator = page.getByRole('dialog', { name: '新增卡片', exact: true })
   await expect(creator.getByRole('switch', { name: '追踪账单', exact: true })).toHaveAttribute(
@@ -1051,6 +1066,7 @@ test('card tracking status is explicit and untracked chips stay pale blue', asyn
     })
     expect(response.status()).toBe(200)
     await page.reload()
+    await page.getByRole('tab', { name: '账户管理', exact: true }).click()
     const chip = tile.getByRole('button', {
       name: `${card.name} · ${card.last_four}${active ? '' : '（停用）'}`,
       exact: true,
@@ -1141,6 +1157,7 @@ test('card details edit shortcut opens the selected card and preserves private f
   const chip = tile.getByRole('button', { name: `${card.name} · 4321（停用）`, exact: true })
   const nameInput = editor.locator('.el-form-item').filter({ hasText: /^名称/ }).locator('input')
   await page.reload()
+  await page.getByRole('tab', { name: '账户管理', exact: true }).click()
   for (const width of [1440, 320]) {
     await page.setViewportSize({ width, height: 900 })
     await chip.click()
@@ -1187,6 +1204,7 @@ test('card details edit shortcut opens the selected card and preserves private f
   await expect(details.locator('.card-validity-status')).toHaveText('已停用')
   await details.getByRole('button', { name: '关闭', exact: true }).click()
   await page.reload()
+  await page.getByRole('tab', { name: '账户管理', exact: true }).click()
   await expect(updatedChip).toBeVisible()
   const accounts = await (await page.request.get('/api/v1/admin/accounts')).json()
   const savedCard = accounts.items
@@ -1226,6 +1244,7 @@ test('compact card editor groups private fields and keeps actions visible at eve
   })
   expect(response.status()).toBe(200)
   await page.reload()
+  await page.getByRole('tab', { name: '账户管理', exact: true }).click()
   await openCardEditor(page, tile, '臻享白金信用卡')
   const editor = page.getByRole('dialog', { name: '编辑卡片', exact: true })
   const panel = editor.locator('.card-editor-dialog')
@@ -1297,6 +1316,7 @@ test('compact card editor groups private fields and keeps actions visible at eve
   })
   expect(deactivate.status()).toBe(200)
   await page.reload()
+  await page.getByRole('tab', { name: '账户管理', exact: true }).click()
   await tile.getByRole('button', { name: '添加卡片', exact: true }).click()
   const creator = page.getByRole('dialog', { name: '新增卡片', exact: true })
   await expect(creator.getByRole('button', { name: '删除卡片', exact: true })).toHaveCount(0)

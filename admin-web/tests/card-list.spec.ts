@@ -62,7 +62,10 @@ async function mockAccounts(page: Page, getAccounts: () => Account[]) {
 }
 async function openList(page: Page) {
   await page.goto('/accounts')
-  await page.getByRole('tab', { name: '账户列表', exact: true }).click()
+  await expect(page.getByRole('tab', { name: '账户列表', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
 }
 const rows = (page: Page) => page.locator('.bank-card-table .el-table__body-wrapper tbody tr')
 
@@ -118,7 +121,7 @@ test('card list shows all cards and metadata with private details opt-in and syn
     /招\s*招商银行/,
     '测试持卡人',
     '臻享白',
-    '0059',
+    /••\s*0059/,
     '信用卡',
     'VISA',
     '家庭合并账户',
@@ -230,7 +233,13 @@ test('card list fits desktop and mobile with a reachable details action', async 
       expect(bounds.x).toBeGreaterThanOrEqual(0)
       expect(bounds.x + bounds.width).toBeLessThanOrEqual(width)
     }
+    await chooseCardFilter(page, '卡组织', '万事达')
+    await expect(rows(page)).toHaveCount(1)
+    await expect(rows(page)).toContainText('万事达世界卡')
+    await page.getByRole('button', { name: '重置筛选', exact: true }).click()
+    await expect(rows(page)).toHaveCount(3)
     const button = rows(page).first().getByRole('button', { name: '卡片详情', exact: true })
+    await button.scrollIntoViewIfNeeded()
     await expect(button).toBeInViewport()
     const table = page.locator('.bank-card-table .el-scrollbar__wrap').first()
     expect(await table.evaluate((element) => element.scrollWidth)).toBeGreaterThan(width)
@@ -240,6 +249,7 @@ test('card list fits desktop and mobile with a reachable details action', async 
     await expect(details).toContainText('一张名称很长的银行卡用于验证列表在窄屏中的可读性')
     await details.getByRole('button', { name: '关闭', exact: true }).click()
     await expect(details).not.toBeVisible()
+    await page.evaluate(() => window.scrollTo(0, 0))
     await page.screenshot({
       path: testInfo.outputPath(`card-list-${width}.png`),
       fullPage: true,
@@ -403,4 +413,120 @@ test('card dropdowns compose, clear, reset and retain filters on refresh', async
   await expect(page.getByText('暂无符合筛选条件的银行卡。', { exact: true })).toBeVisible()
   await reset.click()
   await expect(rows(page)).toHaveCount(3)
+})
+
+test('account collection opens the list by default with accurate overview and styled bank groups', async ({
+  page,
+}, testInfo) => {
+  const accounts = [
+    account(
+      'icbc',
+      [
+        card('icbc-cny', { name: '牡丹白金卡', last_four: '3484', card_network: 'unionpay' }),
+        card('icbc-fx', { name: '环球旅行卡', last_four: '0377' }),
+      ],
+      {
+        bank_id: 'bank-icbc',
+        bank_code: 'icbc',
+        bank_name: '工商银行',
+        cardholder_name: '陈先生',
+        name: '工行信用卡账户',
+      },
+    ),
+    account(
+      'boc',
+      [
+        card('boc-up', { name: '环球通白金卡', last_four: '3536', card_network: 'unionpay' }),
+        card('boc-mc', {
+          name: '万事达世界卡',
+          last_four: '4853',
+          card_network: 'mastercard',
+          track_bills: false,
+        }),
+      ],
+      {
+        bank_id: 'bank-boc',
+        bank_code: 'boc',
+        bank_name: '中国银行',
+        cardholder_name: '陈先生',
+        name: '中行信用卡账户',
+      },
+    ),
+    account(
+      'abc',
+      [
+        card('abc-missing', {
+          name: '悠然白金卡',
+          last_four: '8753',
+          card_type: null,
+          card_network: null,
+        }),
+        card('abc-debit', {
+          name: '金穗借记卡',
+          last_four: '4029',
+          card_type: 'debit',
+          card_network: 'unionpay',
+          active: false,
+        }),
+      ],
+      {
+        bank_id: 'bank-abc',
+        bank_code: 'abc',
+        bank_name: '农业银行',
+        cardholder_name: '陈先生',
+        name: '农行账户',
+      },
+    ),
+    account(
+      'cmb',
+      [card('cmb-amex', { name: '百夫长白金卡', last_four: '1628', card_network: 'amex' })],
+      {
+        cardholder_id: 'holder-2',
+        cardholder_name: '杨女士',
+        name: '招商银行账户',
+        effective_active: false,
+      },
+    ),
+  ]
+  await mockAccounts(page, () => accounts)
+  await page.setViewportSize({ width: 1920, height: 1080 })
+  await openList(page)
+  await expect(page.locator('.card-count')).toHaveText('7 张')
+  await expect(page.locator('.card-collection-heading p')).toHaveText('4 家银行 · 2 位持卡人')
+  await expect(page.locator('.collection-active-count')).toHaveText('5 张有效卡片')
+  await expect(rows(page).filter({ has: page.locator('.card-status-label.inactive') })).toHaveCount(
+    1,
+  )
+  await expect(
+    rows(page).filter({ has: page.locator('.card-status-label.account_inactive') }),
+  ).toHaveCount(1)
+  await expect(page.locator('.bank-card-table .bank-group-start')).toHaveCount(3)
+  await expect(page.locator('.bank-card-table .is-inactive')).toHaveCount(2)
+  await expect(page.getByRole('button', { name: '管理账户与卡片', exact: true })).toHaveCount(0)
+  for (const width of [1920, 1440]) {
+    await page.setViewportSize({ width, height: 1080 })
+    await page.screenshot({
+      path: testInfo.outputPath(`card-overview-${width}.png`),
+      fullPage: true,
+      animations: 'disabled',
+    })
+  }
+  await chooseCardFilter(page, '状态', '有效')
+  await expect(rows(page)).toHaveCount(5)
+  // Overview counts describe the entire collection, not only filtered cards.
+  await expect(page.locator('.card-count')).toHaveText('7 张')
+  await expect(page.locator('.collection-active-count')).toHaveText('5 张有效卡片')
+  await page.getByRole('tab', { name: '账户管理', exact: true }).click()
+  await expect(page.getByRole('button', { name: '新增账户', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '刷新', exact: true }).click()
+  await expect(page.getByRole('tab', { name: '账户管理', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
+  await page.reload()
+  await expect(page.getByRole('tab', { name: '账户列表', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
+  await expect(rows(page)).toHaveCount(7)
 })
