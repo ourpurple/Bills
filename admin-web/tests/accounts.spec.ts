@@ -470,7 +470,8 @@ test('card chips open read-only details with empty, disabled, zero-limit and mob
   await activeChip.focus()
   await page.keyboard.press('Enter')
   await expect(details).toBeVisible()
-  await expect(details.locator('.card-detail-identity')).toHaveText(/^待删除银行卡\s*· 4321$/)
+  await expect(details.locator('.card-detail-identity > h2')).toHaveText('待删除银行卡')
+  await expect(details.locator('.card-tracking-status')).toHaveText('追踪账单：是')
   await expect(details.getByLabel('卡片尾号 4321', { exact: true })).toBeVisible()
   await expect(details.locator('dt').filter({ hasText: /^(卡片尾号|所属账户)$/ })).toHaveCount(0)
   const privateBlock = details.getByRole('region', { name: '卡片安全信息' })
@@ -1009,7 +1010,7 @@ test('bill tracking persists independently of validity and gates billing', async
   await expect(creator).not.toBeVisible()
   await tile.getByRole('button', { name: '不追踪的新卡 · 9876', exact: true }).click()
   await expect(page.getByRole('dialog', { name: '卡片详情', exact: true })).toContainText(
-    '不追踪账单',
+    '追踪账单：否',
   )
   const saved = (await (await page.request.get('/api/v1/admin/accounts')).json()).items.find(
     (a: { id: string }) => a.id === account.id,
@@ -1027,4 +1028,76 @@ test('bill tracking persists independently of validity and gates billing', async
   await expect(historicalRow).toHaveCount(0)
   await page.getByText('包含未追踪历史', { exact: true }).click()
   await expect(historicalRow).toHaveCount(1)
+})
+
+test('card tracking status is explicit and untracked chips stay pale blue', async ({
+  page,
+}, testInfo) => {
+  const { tile, card, headers } = await setup(page, '账单追踪状态显示')
+  const details = page.getByRole('dialog', { name: '卡片详情', exact: true })
+  const blue = 'rgb(234, 244, 255)'
+  for (const [active, tracking] of [
+    [true, true],
+    [true, false],
+    [false, false],
+    [false, true],
+    [true, true],
+  ]) {
+    const response = await page.request.patch(`/api/v1/admin/cards/${card.id}`, {
+      headers,
+      data: { name: card.name, active, track_bills: tracking },
+    })
+    expect(response.status()).toBe(200)
+    await page.reload()
+    const chip = tile.getByRole('button', {
+      name: `${card.name} · ${card.last_four}${active ? '' : '（停用）'}`,
+      exact: true,
+    })
+    await page.mouse.move(0, 0)
+    await expect(chip).toHaveAttribute('title', new RegExp(`追踪账单：${tracking ? '是' : '否'}`))
+    if (tracking) {
+      await expect(chip).not.toHaveClass(/is-untracked/)
+      await expect(chip).not.toHaveCSS('background-color', blue)
+    } else {
+      await expect(chip).toHaveClass(/is-untracked/)
+      await expect(chip).toHaveCSS('background-color', blue)
+      await chip.hover()
+      await expect(chip).toHaveCSS('background-color', 'rgb(220, 236, 255)')
+    }
+    if (!active) await expect(chip).toContainText('（停用）')
+    await chip.click()
+    await expect(details.locator('.card-tracking-status')).toHaveText(
+      `追踪账单：${tracking ? '是' : '否'}`,
+    )
+    await expect(details.locator('.card-detail-heading > .el-tag')).toHaveText(
+      active ? '有效' : '已停用',
+    )
+    if (!tracking)
+      await expect(details.locator('.card-detail-heading')).toHaveCSS('background-color', blue)
+    if (active && !tracking) {
+      for (const [width, height] of [
+        [1440, 900],
+        [390, 844],
+        [320, 640],
+      ]) {
+        await page.setViewportSize({ width, height })
+        const body = details.locator('.el-dialog__body')
+        expect(await body.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+        await expect(details.locator('.card-tracking-status')).toBeInViewport()
+        await expect(details.getByRole('button', { name: '关闭', exact: true })).toBeInViewport()
+        await details.locator('.card-details-dialog').screenshot({
+          path: testInfo.outputPath(`card-tracking-status-${width}.png`),
+          animations: 'disabled',
+        })
+      }
+    }
+    await details.getByRole('button', { name: '关闭', exact: true }).click()
+    await expect(details).not.toBeVisible()
+    if (active && !tracking) {
+      await tile.screenshot({
+        path: testInfo.outputPath('untracked-card-chip-320.png'),
+        animations: 'disabled',
+      })
+    }
+  }
 })

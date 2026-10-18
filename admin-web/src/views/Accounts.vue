@@ -363,9 +363,9 @@ onMounted(load)
                   :key="c.id"
                   plain
                   size="small"
-                  :class="{ inactive: !c.active }"
+                  :class="{ inactive: !c.active, 'is-untracked': c.track_bills === false }"
                   :type="c.active ? undefined : 'danger'"
-                  :title="`${c.name} · ${c.last_four}${c.active ? '' : '（停用）'}`"
+                  :title="`${c.name} · ${c.last_four}${c.active ? '' : '（停用）'} · 追踪账单：${c.track_bills === false ? '否' : '是'}`"
                   @click="viewCard(a, c)"
                   >{{ c.name }} · {{ c.last_four }}{{ c.active ? '' : '（停用）' }}</el-button
                 ><span v-if="!a.cards.length" class="muted">暂未添加卡片</span>
@@ -452,13 +452,18 @@ onMounted(load)
     destroy-on-close
   >
     <template v-if="selectedCard && selectedAccount">
-      <div class="card-detail-heading">
+      <div
+        class="card-detail-heading"
+        :class="{ 'is-untracked': selectedCard.track_bills === false }"
+      >
         <div class="card-detail-identity">
           <h2>{{ selectedCard.name }}</h2>
           <span class="card-detail-tail" :aria-label="`卡片尾号 ${selectedCard.last_four}`"
             >· {{ selectedCard.last_four }}</span
           >
-          <span v-if="selectedCard.track_bills === false" class="card-detail-tail">不追踪账单</span>
+          <span class="card-tracking-status">
+            追踪账单：{{ selectedCard.track_bills === false ? '否' : '是' }}
+          </span>
         </div>
         <el-tag :type="selectedCard.active ? 'success' : 'danger'" size="small">
           {{ selectedCard.active ? '有效' : '已停用' }}
@@ -929,6 +934,25 @@ onMounted(load)
   border-radius: 8px;
   background: #f2f6ef;
 }
+.card-detail-heading.is-untracked {
+  border-color: #c9def1;
+  border-left-color: #6fa2cf;
+  background: #eaf4ff;
+}
+.card-tracking-status {
+  padding: 2px 7px;
+  border: 1px solid #d5e3d9;
+  border-radius: 4px;
+  color: var(--el-color-primary);
+  background: #fff;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.card-detail-heading.is-untracked .card-tracking-status {
+  border-color: #c2d9ee;
+  color: #346b99;
+}
 .card-detail-identity {
   display: flex;
   align-items: baseline;
@@ -1204,6 +1228,19 @@ onMounted(load)
   margin: 0;
   padding: 4px 8px;
   font-size: 12px;
+}
+.card-chips .el-button.is-untracked {
+  --el-button-bg-color: #eaf4ff;
+  --el-button-border-color: #b9d6f1;
+  --el-button-hover-bg-color: #dcecff;
+  --el-button-hover-border-color: #80b2df;
+  --el-button-active-bg-color: #cfe3fa;
+  --el-button-active-border-color: #6fa2cf;
+}
+.card-chips .el-button.is-untracked:not(.inactive) {
+  --el-button-text-color: #346b99;
+  --el-button-hover-text-color: #24577f;
+  --el-button-active-text-color: #24577f;
 }
 .card-chips :deep(.el-button > span) {
   display: block;
