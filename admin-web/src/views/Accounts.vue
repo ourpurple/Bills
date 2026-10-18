@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh } from '@element-plus/icons-vue'
+import { Edit, Plus, Refresh } from '@element-plus/icons-vue'
 import { api, allItems } from '../api'
 import { amountText, modeText, type Bank, type Holder, type Account, type Card } from '../types'
 const banks = ref<Bank[]>([]),
@@ -63,6 +63,12 @@ function viewCard(account: Account, card: Card) {
   selectedAccountId.value = account.id
   selectedCardId.value = card.id
   cardDetailsVisible.value = true
+}
+function editSelectedCard() {
+  if (!selectedCard.value) return
+  const card = selectedCard.value
+  cardDetailsVisible.value = false
+  open('card', card)
 }
 watch(cardDetailsVisible, (visible) => {
   if (!visible) {
@@ -461,13 +467,23 @@ onMounted(load)
           <span class="card-detail-tail" :aria-label="`卡片尾号 ${selectedCard.last_four}`"
             >· {{ selectedCard.last_four }}</span
           >
-          <span class="card-tracking-status">
-            追踪账单：{{ selectedCard.track_bills === false ? '否' : '是' }}
-          </span>
         </div>
-        <el-tag :type="selectedCard.active ? 'success' : 'danger'" size="small">
-          {{ selectedCard.active ? '有效' : '已停用' }}
-        </el-tag>
+        <div class="card-detail-statuses">
+          <el-tag
+            class="card-tracking-status"
+            :type="selectedCard.track_bills === false ? 'danger' : 'success'"
+            size="small"
+          >
+            追踪账单：{{ selectedCard.track_bills === false ? '否' : '是' }}
+          </el-tag>
+          <el-tag
+            class="card-validity-status"
+            :type="selectedCard.active ? 'success' : 'danger'"
+            size="small"
+          >
+            {{ selectedCard.active ? '有效' : '已停用' }}
+          </el-tag>
+        </div>
       </div>
       <dl class="card-detail-list">
         <div>
@@ -556,7 +572,18 @@ onMounted(load)
       </dl>
     </template>
     <template #footer>
-      <el-button @click="cardDetailsVisible = false">关闭</el-button>
+      <div class="card-detail-actions">
+        <el-button
+          type="primary"
+          plain
+          :icon="Edit"
+          :disabled="!selectedCard"
+          @click="editSelectedCard"
+        >
+          编辑
+        </el-button>
+        <el-button @click="cardDetailsVisible = false">关闭</el-button>
+      </div>
     </template>
   </el-dialog>
   <el-dialog
@@ -922,8 +949,15 @@ onMounted(load)
   overflow-y: auto;
   scrollbar-gutter: stable;
 }
+.card-detail-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
 .card-detail-heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -939,19 +973,12 @@ onMounted(load)
   border-left-color: #6fa2cf;
   background: #eaf4ff;
 }
-.card-tracking-status {
-  padding: 2px 7px;
-  border: 1px solid #d5e3d9;
-  border-radius: 4px;
-  color: var(--el-color-primary);
-  background: #fff;
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: nowrap;
-}
-.card-detail-heading.is-untracked .card-tracking-status {
-  border-color: #c2d9ee;
-  color: #346b99;
+.card-detail-statuses {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 8px;
+  margin-left: auto;
 }
 .card-detail-identity {
   display: flex;

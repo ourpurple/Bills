@@ -489,7 +489,8 @@ test('card chips open read-only details with empty, disabled, zero-limit and mob
   await expect(
     details.locator('input, textarea, form, [role="switch"], [contenteditable="true"]'),
   ).toHaveCount(0)
-  await expect(details.getByRole('button', { name: /编辑|删除|保存|添加/ })).toHaveCount(0)
+  await expect(details.getByRole('button', { name: '编辑', exact: true })).toBeInViewport()
+  await expect(details.getByRole('button', { name: /删除|保存|添加/ })).toHaveCount(0)
   await page.keyboard.press('Escape')
   await expect(details).not.toBeVisible()
   expect(mutations).toBe(0)
@@ -530,7 +531,7 @@ test('card chips open read-only details with empty, disabled, zero-limit and mob
   })
   await inactiveChip.click()
   await expect(details.getByText('已停用', { exact: true })).toBeVisible()
-  await expect(details.locator('.card-detail-heading .el-tag')).toHaveClass(/el-tag--danger/)
+  await expect(details.locator('.card-validity-status')).toHaveClass(/el-tag--danger/)
   await expect(field('额度')).toHaveText('¥ 80,000.50')
   await expect(field('年费收取日期')).toHaveText('每年 2 月 29 日')
   await expect(field('年费优惠信息')).toHaveText(benefits)
@@ -552,7 +553,8 @@ test('card chips open read-only details with empty, disabled, zero-limit and mob
     expect(bounds.y + bounds.height).toBeLessThanOrEqual(844)
     expect(await detailPanel.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
     await expectTwoColumnLayout()
-    await expect(details.getByRole('button', { name: /编辑|删除|保存|添加/ })).toHaveCount(0)
+    await expect(details.getByRole('button', { name: '编辑', exact: true })).toBeInViewport()
+    await expect(details.getByRole('button', { name: /删除|保存|添加/ })).toHaveCount(0)
     await details.getByRole('button', { name: '关闭', exact: true }).scrollIntoViewIfNeeded()
     const headerBounds = (await details.locator('.el-dialog__header').boundingBox())!
     const closeBounds = (await details
@@ -1069,9 +1071,29 @@ test('card tracking status is explicit and untracked chips stay pale blue', asyn
     await expect(details.locator('.card-tracking-status')).toHaveText(
       `追踪账单：${tracking ? '是' : '否'}`,
     )
-    await expect(details.locator('.card-detail-heading > .el-tag')).toHaveText(
-      active ? '有效' : '已停用',
+    await expect(details.locator('.card-validity-status')).toHaveText(active ? '有效' : '已停用')
+    const trackingBadge = details.locator('.card-tracking-status')
+    const validityBadge = details.locator('.card-validity-status')
+    await expect(trackingBadge).toHaveClass(tracking ? /el-tag--success/ : /el-tag--danger/)
+    await expect(trackingBadge).toHaveCSS(
+      'color',
+      tracking ? 'rgb(103, 194, 58)' : 'rgb(245, 108, 108)',
     )
+    await expect(details.locator('.card-detail-identity .card-tracking-status')).toHaveCount(0)
+    async function expectStatusOrder() {
+      await expect
+        .poll(() =>
+          details.locator('.card-detail-statuses').evaluate((group) => {
+            // Read both bounds in one frame while the dialog is animating.
+            const [tracking, validity] = Array.from(group.children, (tag) =>
+              tag.getBoundingClientRect(),
+            )
+            return tracking.right < validity.x && Math.abs(tracking.y - validity.y) < 1
+          }),
+        )
+        .toBe(true)
+    }
+    await expectStatusOrder()
     if (!tracking)
       await expect(details.locator('.card-detail-heading')).toHaveCSS('background-color', blue)
     if (active && !tracking) {
@@ -1084,6 +1106,8 @@ test('card tracking status is explicit and untracked chips stay pale blue', asyn
         const body = details.locator('.el-dialog__body')
         expect(await body.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
         await expect(details.locator('.card-tracking-status')).toBeInViewport()
+        await expect(validityBadge).toBeInViewport()
+        await expectStatusOrder()
         await expect(details.getByRole('button', { name: '关闭', exact: true })).toBeInViewport()
         await details.locator('.card-details-dialog').screenshot({
           path: testInfo.outputPath(`card-tracking-status-${width}.png`),
@@ -1100,4 +1124,81 @@ test('card tracking status is explicit and untracked chips stay pale blue', asyn
       })
     }
   }
+})
+
+test('card details edit shortcut opens the selected card and preserves private fields', async ({
+  page,
+}, testInfo) => {
+  const { tile, account, card, headers } = await setup(page, '详情直接编辑测试')
+  const secret = { card_number: '4111111111114321', cvv: '012' }
+  const initial = await page.request.patch(`/api/v1/admin/cards/${card.id}`, {
+    headers,
+    data: { name: card.name, active: false, track_bills: false, expiry: '09/29', ...secret },
+  })
+  expect(initial.status()).toBe(200)
+  const details = page.getByRole('dialog', { name: '卡片详情', exact: true })
+  const editor = page.getByRole('dialog', { name: '编辑卡片', exact: true })
+  const chip = tile.getByRole('button', { name: `${card.name} · 4321（停用）`, exact: true })
+  const nameInput = editor.locator('.el-form-item').filter({ hasText: /^名称/ }).locator('input')
+  await page.reload()
+  for (const width of [1440, 320]) {
+    await page.setViewportSize({ width, height: 900 })
+    await chip.click()
+    const editButton = details.getByRole('button', { name: '编辑', exact: true })
+    const closeButton = details.getByRole('button', { name: '关闭', exact: true })
+    await expect(editButton).toBeInViewport()
+    await expect(closeButton).toBeInViewport()
+    expect((await editButton.boundingBox())!.x).toBeLessThan((await closeButton.boundingBox())!.x)
+    await details.locator('.card-details-dialog').screenshot({
+      path: testInfo.outputPath(`card-detail-edit-${width}.png`),
+      animations: 'disabled',
+    })
+    await editButton.click()
+    await expect(details).not.toBeVisible()
+    await expect(editor).toBeVisible()
+    await expect(nameInput).toHaveValue(card.name)
+    await expect(editor.getByLabel('有效期', { exact: true })).toHaveValue('09/29')
+    await expect(editor.getByLabel('卡号', { exact: true })).toHaveValue('')
+    await expect(editor.getByLabel('CVV', { exact: true })).toHaveValue('')
+    await nameInput.fill('取消后不应保留的名称')
+    await editor.getByRole('button', { name: '取消', exact: true }).click()
+    await expect(editor).not.toBeVisible()
+    await expect(chip).toBeVisible()
+  }
+  await chip.click()
+  await details.getByRole('button', { name: '编辑', exact: true }).click()
+  await nameInput.fill('详情编辑后的卡片')
+  const saved = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/admin/cards/${card.id}`) && response.request().method() === 'PATCH',
+  )
+  await editor.getByRole('button', { name: '保存', exact: true }).click()
+  expect((await saved).status()).toBe(200)
+  await expect(editor).not.toBeVisible()
+  const updatedChip = tile.getByRole('button', {
+    name: '详情编辑后的卡片 · 4321（停用）',
+    exact: true,
+  })
+  await updatedChip.click()
+  await expect(
+    details.getByRole('heading', { name: '详情编辑后的卡片', exact: true }),
+  ).toBeVisible()
+  await expect(details.locator('.card-tracking-status')).toHaveText('追踪账单：否')
+  await expect(details.locator('.card-validity-status')).toHaveText('已停用')
+  await details.getByRole('button', { name: '关闭', exact: true }).click()
+  await page.reload()
+  await expect(updatedChip).toBeVisible()
+  const accounts = await (await page.request.get('/api/v1/admin/accounts')).json()
+  const savedCard = accounts.items
+    .find((item: { id: string }) => item.id === account.id)
+    .cards.find((item: { id: string }) => item.id === card.id)
+  expect(savedCard.name).toBe('详情编辑后的卡片')
+  expect(savedCard.expiry).toBe('09/29')
+  expect(savedCard.active).toBe(false)
+  expect(savedCard.track_bills).toBe(false)
+  const privateResponse = await page.request.post(`/api/v1/admin/cards/${card.id}/private`, {
+    headers,
+  })
+  expect(privateResponse.status()).toBe(200)
+  expect(await privateResponse.json()).toMatchObject(secret)
 })
