@@ -10,6 +10,9 @@ const banks = ref<Bank[]>([]),
 const sortedAccounts = computed(() =>
   [...accounts.value].sort((a, b) => (a.statement_day ?? 32) - (b.statement_day ?? 32)),
 )
+const cardRows = computed(() =>
+  sortedAccounts.value.flatMap((account) => account.cards.map((card) => ({ ...card, account }))),
+)
 const tab = ref('accounts'),
   loading = ref(false),
   dialog = ref(false),
@@ -329,8 +332,71 @@ onMounted(load)
     <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
   </div>
   <section class="panel padded" v-loading="loading">
-    <el-tabs v-model="tab"
-      ><el-tab-pane label="还款账户" name="accounts"
+    <el-tabs v-model="tab">
+      <el-tab-pane label="账户列表" name="cards">
+        <div class="toolbar card-list-toolbar">
+          <p>共 {{ cardRows.length }} 张银行卡（含停用卡片），卡号仅展示后四位。</p>
+          <el-button :icon="Edit" @click="tab = 'accounts'">管理账户与卡片</el-button>
+        </div>
+        <el-empty
+          v-if="!cardRows.length"
+          description="暂无银行卡，请在账户管理中添加账户与卡片。"
+        />
+        <el-table v-else :data="cardRows" row-key="id" class="bank-card-table">
+          <el-table-column label="银行" min-width="150">
+            <template #default="{ row }">
+              <div class="bank-card-bank">
+                <div class="bank-badge" :class="row.account.bank_code" aria-hidden="true">
+                  {{ row.account.bank_name.slice(0, 1) }}
+                </div>
+                <span>{{ row.account.bank_name }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="持卡人" min-width="110">
+            <template #default="{ row }">{{ row.account.cardholder_name }}</template>
+          </el-table-column>
+          <el-table-column prop="name" label="卡种" min-width="160" />
+          <el-table-column label="卡号后四位" width="110">
+            <template #default="{ row }"
+              ><span class="card-tail">{{ row.last_four }}</span></template
+            >
+          </el-table-column>
+          <el-table-column label="卡类型" width="100">
+            <template #default="{ row }">{{ optionLabel(cardTypes, row.card_type) }}</template>
+          </el-table-column>
+          <el-table-column label="卡组织" min-width="150">
+            <template #default="{ row }">{{
+              optionLabel(cardNetworks, row.card_network)
+            }}</template>
+          </el-table-column>
+          <el-table-column label="所属账户" min-width="160">
+            <template #default="{ row }">{{ row.account.name }}</template>
+          </el-table-column>
+          <el-table-column label="状态" min-width="140">
+            <template #default="{ row }">
+              <el-tag
+                size="small"
+                :type="!row.active || !row.account.effective_active ? 'info' : 'success'"
+                >{{
+                  !row.active ? '已停用' : !row.account.effective_active ? '所属账户已停用' : '有效'
+                }}</el-tag
+              >
+            </template>
+          </el-table-column>
+          <el-table-column label="追踪账单" width="100">
+            <template #default="{ row }">{{ row.track_bills === false ? '否' : '是' }}</template>
+          </el-table-column>
+          <el-table-column label="操作" fixed="right" width="116">
+            <template #default="{ row }">
+              <el-button text type="primary" @click="viewCard(row.account, row)"
+                >卡片详情</el-button
+              >
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-tab-pane>
+      <el-tab-pane label="账户管理" name="accounts"
         ><div class="toolbar">
           <p>合并模式：多卡共用一份账单。独立模式：每个账户一张有效卡。</p>
           <el-button type="primary" :icon="Plus" @click="open('account')">新增账户</el-button>
@@ -1308,6 +1374,31 @@ onMounted(load)
   color: var(--el-text-color-secondary);
   font-size: 12px;
   line-height: 1.6;
+}
+
+.bank-card-table {
+  width: 100%;
+}
+.bank-card-table :deep(.cell) {
+  overflow-wrap: anywhere;
+}
+.bank-card-bank {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.bank-card-bank .bank-badge {
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  font-size: 17px;
+}
+.card-list-toolbar {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.card-list-toolbar p {
+  margin: 0;
 }
 
 .account-list {
