@@ -841,10 +841,6 @@ onMounted(load)
 .card-detail-list .private-controls {
   grid-column: 1 / -1;
 }
-.card-detail-list .private-controls {
-  align-items: flex-start;
-  justify-content: center;
-}
 @media (max-width: 420px) {
   .card-identity-fields {
     grid-template-columns: minmax(0, 1fr);
@@ -856,47 +852,57 @@ onMounted(load)
   flex-direction: column;
   max-height: 90dvh;
   margin-block: 5vh;
-  padding: 24px;
+  padding: 20px;
   border: 1px solid #e4e9df;
-  border-radius: 16px;
+  border-radius: 14px;
 }
 :global(.card-details-dialog .el-dialog__header),
 :global(.card-details-dialog .el-dialog__footer) {
   flex-shrink: 0;
 }
+:global(.card-details-dialog .el-dialog__header) {
+  padding-bottom: 12px;
+}
+:global(.card-details-dialog .el-dialog__title) {
+  font-size: 19px;
+}
+:global(.card-details-dialog .el-dialog__footer) {
+  padding-top: 12px;
+}
 :global(.card-details-dialog .el-dialog__body) {
   min-height: 0;
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 .card-detail-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin: 4px 0 8px;
-  padding: 18px;
+  margin: 0 0 8px;
+  padding: 11px 14px;
   border: 1px solid #e2e9df;
   border-left: 3px solid var(--el-color-primary);
-  border-radius: 10px;
+  border-radius: 8px;
   background: #f2f6ef;
 }
 .card-detail-identity {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
-  gap: 4px 10px;
+  gap: 2px 8px;
   min-width: 0;
 }
 .card-detail-heading h2 {
   margin: 0;
   color: var(--el-text-color-primary);
-  font-size: 22px;
-  line-height: 1.5;
+  font-size: 19px;
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
 .card-detail-tail {
   color: #6c7e71;
-  font-size: 16px;
+  font-size: 14px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -906,65 +912,107 @@ onMounted(load)
 .card-detail-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  column-gap: 24px;
+  column-gap: 20px;
   margin: 0;
 }
 .card-detail-list > div {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
   min-width: 0;
-  padding: 16px 0;
+  padding: 8px 0;
   border-bottom: 1px solid #e9ede5;
-  line-height: 1.7;
+  line-height: 1.5;
 }
 .card-detail-list dt {
-  color: #7b877e;
+  flex-shrink: 0;
+  color: #748178;
   font-size: 12px;
 }
 .card-detail-list dd {
+  min-width: 0;
   margin: 0;
   color: var(--el-text-color-primary);
   font-size: 14px;
   font-weight: 500;
+  text-align: right;
   overflow-wrap: anywhere;
+}
+.card-detail-list > .card-detail-number {
+  justify-content: flex-start;
+  gap: 16px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid #e5ebe4;
+  border-radius: 8px;
+  background: #f7f9f5;
+}
+.card-detail-list > .private-controls {
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 8px 0 10px;
+}
+.private-controls .card-field-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
 }
 .card-detail-list .card-detail-limit {
   color: var(--el-color-primary);
-  font-size: 18px;
+  font-size: 17px;
   font-variant-numeric: tabular-nums;
 }
 .card-detail-list .is-empty {
   color: #8a938b;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 400;
 }
 .card-detail-list > .card-detail-benefits {
   grid-column: 1 / -1;
-  gap: 8px;
-  margin-top: 18px;
-  padding: 16px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  margin-top: 12px;
+  padding: 10px 12px;
   border: 1px solid #e9e7dc;
-  border-radius: 10px;
+  border-radius: 8px;
   background: #faf9f4;
 }
 .card-detail-benefits dd {
   white-space: pre-wrap;
-  line-height: 1.9;
+  text-align: left;
+  line-height: 1.6;
   font-weight: 400;
 }
-@media (max-width: 420px) {
+@media (max-width: 560px) {
   :global(.card-details-dialog) {
-    padding: 18px;
-  }
-  .card-detail-heading {
-    padding: 14px 12px;
-  }
-  .card-detail-heading h2 {
-    font-size: 20px;
+    padding: 16px;
   }
   .card-detail-list {
-    column-gap: 18px;
+    column-gap: 16px;
+  }
+  .card-detail-list > div {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 3px;
+    padding-block: 8px;
+  }
+  .card-detail-list dd {
+    text-align: left;
+  }
+  .card-detail-list > .card-detail-number {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 12px;
+    padding: 9px 10px;
+  }
+  .card-detail-list > .private-controls {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px 10px;
   }
 }
 .card-management {

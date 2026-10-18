@@ -601,6 +601,81 @@ test('card chips open read-only details with empty, disabled, zero-limit and mob
   expect(errors).toEqual([])
 })
 
+test('card details keep complete information compact without clipping on desktop and mobile', async ({
+  page,
+}, testInfo) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  const { tile, account, card, headers } = await setup(page, '紧凑布局测试')
+  expect(
+    (
+      await page.request.patch(`/api/v1/admin/cards/${card.id}`, {
+        headers,
+        data: {
+          name: 'VISA',
+          active: true,
+          card_number: '4111111111114321',
+          cvv: '012',
+          expiry: '05/29',
+          card_type: 'credit',
+          card_network: 'visa',
+          credit_limit: '60000.00',
+          annual_fee_month: 1,
+          annual_fee_day: 1,
+          annual_fee_benefits: '终身免年费',
+        },
+      })
+    ).status(),
+  ).toBe(200)
+  expect(
+    (
+      await page.request.patch(`/api/v1/admin/accounts/${account.id}`, {
+        headers,
+        data: { name: account.name, active: true, statement_day: 13 },
+      })
+    ).status(),
+  ).toBe(200)
+  await page.reload()
+  await tile.getByRole('button', { name: 'VISA · 4321', exact: true }).click()
+  const details = page.getByRole('dialog', { name: '卡片详情', exact: true })
+  const panel = details.locator('.card-details-dialog')
+  const body = details.locator('.el-dialog__body')
+  for (const [width, height] of [
+    [1440, 900],
+    [390, 844],
+    [320, 640],
+  ]) {
+    await page.setViewportSize({ width, height })
+    await expect(details).toBeVisible()
+    await expect
+      .poll(async () => {
+        const bounds = (await panel.boundingBox())!
+        return (
+          bounds.x >= 0 &&
+          bounds.x + bounds.width <= width &&
+          bounds.y >= 0 &&
+          bounds.y + bounds.height <= height
+        )
+      })
+      .toBe(true)
+    expect(await body.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+    if (height >= 844) {
+      expect(await body.evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true)
+      await expect(details.getByText('终身免年费', { exact: true })).toBeInViewport()
+    }
+    if (width === 1440) expect((await panel.boundingBox())!.height).toBeLessThan(560)
+    await expect(details.getByRole('button', { name: '关闭', exact: true })).toBeInViewport()
+    await panel.screenshot({
+      path: testInfo.outputPath(`card-details-compact-${width}.png`),
+      animations: 'disabled',
+    })
+  }
+  await details.getByRole('button', { name: '查看卡号 / CVV', exact: true }).click()
+  await expect(details.getByText('4111111111114321', { exact: true })).toBeVisible()
+  expect(await body.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+  await details.getByRole('button', { name: '隐藏卡号 / CVV', exact: true }).click()
+  await expect(details.getByText('4111111111114321', { exact: true })).toHaveCount(0)
+})
+
 test('card identity fields validate, stay private, persist and clear', async ({
   page,
 }, testInfo) => {
