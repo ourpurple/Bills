@@ -166,7 +166,8 @@ test('card list shows all cards and metadata with private details opt-in and syn
     'aria-selected',
     'true',
   )
-  await page.getByRole('button', { name: '管理账户与卡片', exact: true }).click()
+  await expect(page.getByRole('button', { name: '管理账户与卡片', exact: true })).toHaveCount(0)
+  await page.getByRole('tab', { name: '账户管理', exact: true }).click()
   await expect(page.getByRole('button', { name: '新增账户', exact: true })).toBeVisible()
 })
 
@@ -193,7 +194,8 @@ test('card list includes all paginated accounts and supports refresh and empty s
   accounts = []
   await page.getByRole('button', { name: '刷新', exact: true }).click()
   await expect(page.getByText('暂无银行卡，请在账户管理中添加账户与卡片。')).toBeVisible()
-  await page.getByRole('button', { name: '管理账户与卡片', exact: true }).click()
+  await expect(page.getByRole('button', { name: '管理账户与卡片', exact: true })).toHaveCount(0)
+  await page.getByRole('tab', { name: '账户管理', exact: true }).click()
   await expect(
     page.getByText('先添加持卡人，再选择银行创建还款账户。', { exact: true }),
   ).toBeVisible()
@@ -223,6 +225,11 @@ test('card list fits desktop and mobile with a reachable details action', async 
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
       width,
     )
+    for (const filter of await page.locator('.card-list-filter').all()) {
+      const bounds = (await filter.boundingBox())!
+      expect(bounds.x).toBeGreaterThanOrEqual(0)
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(width)
+    }
     const button = rows(page).first().getByRole('button', { name: '卡片详情', exact: true })
     await expect(button).toBeInViewport()
     const table = page.locator('.bank-card-table .el-scrollbar__wrap').first()
@@ -239,4 +246,161 @@ test('card list fits desktop and mobile with a reachable details action', async 
       animations: 'disabled',
     })
   }
+})
+
+async function chooseCardFilter(page: Page, label: string, option: string) {
+  await page.getByRole('combobox', { name: `${label}筛选`, exact: true }).click()
+  await page.getByRole('option', { name: option, exact: true }).click()
+}
+
+test('card list sorts banks by priority then holder while keeping local banks last', async ({
+  page,
+}) => {
+  const bankOrder = [
+    ['icbc', '工商银行'],
+    ['boc', '中国银行'],
+    ['abc', '农业银行'],
+    ['ccb', '建设银行'],
+    ['bocom', '交通银行'],
+    ['psbc', '邮储银行'],
+    ['cmb', '招商银行'],
+    ['cgb', '广发银行'],
+    ['citic', '中信银行'],
+    ['spdb', '浦发银行'],
+    ['cmbc', '民生银行'],
+    ['cib', '兴业银行'],
+    ['hxb', '华夏银行'],
+    ['bj', '北京银行'],
+    ['sh', '上海银行'],
+  ]
+  const expected = bankOrder.flatMap(([code]) => [`${code}-陈`, `${code}-张`])
+  const accounts = bankOrder
+    .flatMap(([code, name], index) =>
+      ['张', '陈'].map((holder, holderIndex) =>
+        account(`${code}-${holder}`, [card(`${code}-${holder}`, { name: `${code}-${holder}` })], {
+          bank_id: `bank-${code}`,
+          bank_code: code!,
+          bank_name: name!,
+          cardholder_id: `holder-${holder}`,
+          cardholder_name: `${holder}先生`,
+          statement_day: 28 - index - holderIndex,
+        }),
+      ),
+    )
+    .reverse()
+  await mockAccounts(page, () => accounts)
+  await openList(page)
+  await expect(rows(page).locator('td:nth-child(3)')).toHaveText(expected)
+  await chooseCardFilter(page, '持卡人', '张先生')
+  await expect(rows(page).locator('td:nth-child(3)')).toHaveText(
+    bankOrder.map(([code]) => `${code}-张`),
+  )
+  await page.getByRole('combobox', { name: '银行筛选', exact: true }).click()
+  await expect(page.getByRole('option')).toHaveText(bankOrder.map(([, name]) => name!))
+  await page.keyboard.press('Escape')
+})
+
+test('card dropdowns compose, clear, reset and retain filters on refresh', async ({ page }) => {
+  let accounts = [
+    account(
+      'cmb-chen',
+      [
+        card('visa', { name: '有效VISA卡' }),
+        card('debit', {
+          name: '停用借记卡',
+          active: false,
+          card_type: 'debit',
+          card_network: 'unionpay',
+        }),
+      ],
+      { cardholder_id: 'chen', cardholder_name: '陈先生' },
+    ),
+    account('icbc-zhang', [card('mastercard', { name: '万事达卡', card_network: 'mastercard' })], {
+      bank_id: 'bank-icbc',
+      bank_code: 'icbc',
+      bank_name: '工商银行',
+      cardholder_id: 'zhang',
+      cardholder_name: '张先生',
+    }),
+    account(
+      'cmb-zhang',
+      [
+        card('missing', {
+          name: '未设置卡',
+          card_type: null,
+          card_network: undefined,
+        }),
+        card('amex', { name: '运通卡', card_network: 'amex' }),
+      ],
+      {
+        cardholder_id: 'zhang',
+        cardholder_name: '张先生',
+        effective_active: false,
+      },
+    ),
+  ]
+  await mockAccounts(page, () => accounts)
+  await openList(page)
+  const reset = page.getByRole('button', { name: '重置筛选', exact: true })
+  await expect(reset).toBeDisabled()
+  await expect(rows(page)).toHaveCount(5)
+  await chooseCardFilter(page, '银行', '招商银行')
+  await expect(rows(page)).toHaveCount(4)
+  await chooseCardFilter(page, '持卡人', '陈先生')
+  await expect(rows(page)).toHaveCount(2)
+  await chooseCardFilter(page, '卡类型', '信用卡')
+  await chooseCardFilter(page, '卡组织', 'VISA')
+  await chooseCardFilter(page, '状态', '有效')
+  await expect(rows(page)).toHaveCount(1)
+  await expect(rows(page)).toContainText('有效VISA卡')
+  await expect(page.locator('.card-list-toolbar')).toContainText('共 5 张银行卡，筛选出 1 张')
+  await page.getByRole('button', { name: '刷新', exact: true }).click()
+  await expect(rows(page)).toHaveCount(1)
+  await expect(
+    page
+      .locator('.card-list-filter')
+      .filter({ has: page.getByRole('combobox', { name: '银行筛选', exact: true }) }),
+  ).toContainText('招商银行')
+  await chooseCardFilter(page, '卡组织', '银联')
+  await expect(rows(page)).toHaveCount(0)
+  await expect(page.getByText('暂无符合筛选条件的银行卡。', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '清空筛选', exact: true }).click()
+  await expect(rows(page)).toHaveCount(5)
+  await expect(reset).toBeDisabled()
+  for (const [label, option, names] of [
+    ['卡类型', '借记卡', ['停用借记卡']],
+    ['卡类型', '未设置', ['未设置卡']],
+    ['卡组织', '银联', ['停用借记卡']],
+    ['卡组织', '万事达', ['万事达卡']],
+    ['卡组织', 'AE（美国运通）', ['运通卡']],
+    ['卡组织', '未设置', ['未设置卡']],
+    ['状态', '有效', ['万事达卡', '有效VISA卡']],
+    ['状态', '已停用', ['停用借记卡']],
+    ['状态', '所属账户已停用', ['未设置卡', '运通卡']],
+  ] as const) {
+    await chooseCardFilter(page, label, option)
+    await expect(rows(page).locator('td:nth-child(3)')).toHaveText([...names])
+    await reset.click()
+  }
+  // Clearing one control keeps the other filters intact.
+  await chooseCardFilter(page, '持卡人', '张先生')
+  await chooseCardFilter(page, '银行', '工商银行')
+  const bankSelect = page.locator('.card-list-filter').filter({ hasText: '银行' })
+  await bankSelect.hover()
+  await bankSelect.locator('.el-select__clear').click()
+  await expect(rows(page)).toHaveCount(3)
+  await expect(
+    page
+      .locator('.card-list-filter')
+      .filter({ has: page.getByRole('combobox', { name: '持卡人筛选', exact: true }) }),
+  ).toContainText('张先生')
+  // Choices remain available independently of the current filtered subset.
+  await chooseCardFilter(page, '持卡人', '陈先生')
+  await expect(rows(page)).toHaveCount(2)
+  accounts = accounts.slice(1)
+  await page.getByRole('button', { name: '刷新', exact: true }).click()
+  await expect(rows(page)).toHaveCount(0)
+  await expect(page.getByText('暂无符合筛选条件的银行卡。', { exact: true })).toBeVisible()
+  await reset.click()
+  await expect(rows(page)).toHaveCount(3)
 })
