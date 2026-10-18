@@ -64,7 +64,7 @@ def match_accounts(db, bill):
     found = []
     conflicting = False
     for account in db.scalars(select(Account)):
-        if not service.account_enabled(db, account):
+        if not service.account_billing_enabled(db, account):
             continue
         group = db.get(AccountGroup, account.group_id)
         bank = db.get(Bank, group.bank_id)
@@ -72,7 +72,11 @@ def match_accounts(db, bill):
         if bank.code != bill["bank_code"]:
             continue
         tails = set(
-            db.scalars(select(Card.last_four).where(Card.account_id == account.id, Card.active.is_(True)))
+            db.scalars(
+                select(Card.last_four).where(
+                    Card.account_id == account.id, Card.active.is_(True), Card.track_bills.is_(True)
+                )
+            )
         )
         if not set(bill["card_last_four"]).issubset(tails):
             continue
@@ -261,11 +265,27 @@ def pending(candidate, expected):
         raise DomainError("CANDIDATE_CLOSED", "候选已经处理，不能重复发布或编辑", 409)
 
 
+def require_candidate_tracking(db, account, candidate):
+    service.require_billing_enabled(db, account)
+    # Re-check at publish time too: a candidate may predate a card being disabled.
+    tails = json.loads(candidate.extraction_json)["card_last_four"]
+    blocked = db.scalar(
+        select(Card.id)
+        .where(
+            Card.account_id == account.id,
+            Card.last_four.in_(tails),
+            (Card.active.is_(False) | Card.track_bills.is_(False)),
+        )
+        .limit(1)
+    )
+    if blocked:
+        raise DomainError("BILLING_NOT_TRACKED", "候选包含已停用或未开启追踪账单的卡片")
+
+
 def edit_candidate(db, candidate, data, actor):
     pending(candidate, data.expected_version)
     account = service.require(db, Account, data.fields.account_id)
-    if not service.account_enabled(db, account):
-        raise DomainError("INACTIVE_ACCOUNT", "停用账户不能用于候选发布")
+    require_candidate_tracking(db, account, candidate)
     service.fields(data.fields, data.fields.currency, data.fields.statement_date)
     values = data.fields.model_dump(mode="json")
     transaction_rows(values["transactions"])
@@ -324,8 +344,7 @@ def publish_candidate(db, candidate, data, actor, automatic=False):
     except ValidationError:
         raise DomainError("CANDIDATE_INCOMPLETE", "候选缺少有效账户、账单日期或币种，请先编辑", 422) from None
     account = service.require(db, Account, review.account_id)
-    if not service.account_enabled(db, account):
-        raise DomainError("INACTIVE_ACCOUNT", "停用账户不能发布账单")
+    require_candidate_tracking(db, account, candidate)
     values = service.fields(review, review.currency, review.statement_date)
     if values["amount_minor"] is None or values["due_date"] is None:
         raise DomainError("CANDIDATE_INCOMPLETE", "本期应还和到期日必须人工确认", 422)

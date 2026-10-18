@@ -742,7 +742,7 @@ onUnmounted(() => clearInterval(timer))
               ><el-form-item label="还款账户"
                 ><el-select v-model="review.account_id" filterable placeholder="请选择有效账户"
                   ><el-option
-                    v-for="a in accounts.filter((a) => a.effective_active)"
+                    v-for="a in accounts.filter((a) => a.billing_enabled ?? a.effective_active)"
                     :key="a.id"
                     :value="a.id"
                     :label="`${a.bank_name} · ${a.cardholder_name} · ${a.name} · ${a.cards.map((c) => c.last_four).join('/')}`" /></el-select

@@ -1148,6 +1148,16 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "name": "tracked_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Tracked Only"
+            }
           }
         ],
         "responses": {
@@ -1246,6 +1256,16 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "name": "tracked_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Tracked Only"
             }
           }
         ],
@@ -4822,6 +4842,11 @@
             "maxLength": 80,
             "minLength": 1,
             "title": "Name"
+          },
+          "track_bills": {
+            "type": "boolean",
+            "title": "Track Bills",
+            "default": true
           }
         },
         "additionalProperties": false,
@@ -4898,6 +4923,11 @@
           "active": {
             "type": "boolean",
             "title": "Active"
+          },
+          "track_bills": {
+            "type": "boolean",
+            "title": "Track Bills",
+            "default": true
           }
         },
         "additionalProperties": false,

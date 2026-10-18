@@ -31,13 +31,15 @@
 
 银行、持卡人、分组和账户列表支持 `page` / `page_size`，最多每页 100。后台选择框会逐页加载，不静默丢掉第一百条以后的数据。设备列表暂为小规模未分页列表。`active` 为自身状态，账户的 `effective_active` 同时考虑银行、持卡人和分组。
 
+卡片新增布尔字段 `track_bills`（默认 `true`，不接受 `null`）；创建时可传 `false`，PATCH 省略时保留原值。账户响应新增 `billing_enabled`：在上级与账户均有效的基础上，至少有一张 `active=true` 且 `track_bills=true` 的卡片；为兼容旧数据，无卡片账户保留账户级人工账单功能。`effective_active` 不受追踪开关影响。新建账单、候选编辑与发布均校验 `billing_enabled`，不满足卡片追踪条件返回 `422 BILLING_NOT_TRACKED`；上级或账户停用仍返回 `INACTIVE_ACCOUNT`。关闭追踪不删除历史账单，也不影响历史详情、核对、还款或年费资料。
+
 ## 账单与记录
 
 管理员和设备共享的读取 / 还款行为分别挂在 `/admin` 和 `/app` 下：
 
 - `GET /{namespace}/overview`。
 - `GET /{namespace}/accounts`。
-- `GET /{namespace}/statements`：支持 account_id、status、page、page_size。
+- `GET /{namespace}/statements`：支持 account_id、status、page、page_size、tracked_only（默认 `true`，仅展示仍有有效且开启追踪卡片的账户，兼容无卡片账户；`false` 包含未追踪历史，在分页前过滤）。
 - `GET /{namespace}/statements/{id}`：摘要、还款、计划、修订历史。
 - `POST /{namespace}/statements/{id}/repayments`。
 - `POST /{namespace}/statements/{id}/plans`。

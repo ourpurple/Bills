@@ -494,6 +494,7 @@ def create_app(settings: Settings | None = None):
         bank_id: str | None = None,
         cardholder_id: str | None = None,
         keyword: str | None = Query(None, max_length=100),
+        tracked_only: bool = True,
         payment_state: Literal["unpaid", "partial", "settled", "overdue", "overpaid"] | None = None,
         currency: Literal["CNY", "USD", "EUR", "HKD", "JPY"] | None = None,
         date_field: Literal["statement_date", "due_date"] = "statement_date",
@@ -506,6 +507,7 @@ def create_app(settings: Settings | None = None):
     ):
         query = service.statement_query(
             account_id=account_id,
+            tracked_only=tracked_only,
             bank_id=bank_id,
             cardholder_id=cardholder_id,
             keyword=keyword,

@@ -899,3 +899,132 @@ test('new card derives its tail and supports every card network', async ({ page 
     expect((await response.json()).card_network).toBe(card_network)
   }
 })
+
+test('bill tracking persists independently of validity and gates billing', async ({
+  page,
+}, testInfo) => {
+  const { tile, account, card, statement, headers } = await setup(page, '账单追踪开关测试', true)
+  expect(
+    (
+      await page.request.post(`/api/v1/admin/statements/${statement.id}/confirm`, {
+        headers,
+        data: { expected_version: 1, reason: '追踪测试' },
+      })
+    ).status(),
+  ).toBe(200)
+  const editor = page.getByRole('dialog', { name: '编辑卡片', exact: true })
+  for (const [active, tracking] of [
+    [true, false],
+    [false, true],
+    [false, false],
+    [true, true],
+  ]) {
+    await openCardEditor(page, tile)
+    const activeSwitch = editor.getByRole('switch', { name: '有效状态', exact: true })
+    const trackingSwitch = editor.getByRole('switch', { name: '追踪账单', exact: true })
+    for (const [control, value] of [
+      [activeSwitch, active],
+      [trackingSwitch, tracking],
+    ] as const) {
+      if ((await control.getAttribute('aria-checked')) !== String(value))
+        await control.locator('..').click()
+      await expect(control).toHaveAttribute('aria-checked', String(value))
+    }
+    if (active && !tracking) {
+      for (const width of [1440, 390, 320]) {
+        await page.setViewportSize({ width, height: 844 })
+        await trackingSwitch.locator('..').scrollIntoViewIfNeeded()
+        await expect(activeSwitch.locator('..')).toBeInViewport()
+        await expect(trackingSwitch.locator('..')).toBeInViewport()
+        expect(
+          await editor
+            .locator('.el-dialog__body')
+            .evaluate((el) => el.scrollWidth <= el.clientWidth),
+        ).toBe(true)
+        await editor.locator('.card-editor-dialog').screenshot({
+          path: testInfo.outputPath(`card-bill-tracking-${width}.png`),
+          animations: 'disabled',
+        })
+      }
+    }
+    await editor.getByRole('button', { name: '保存', exact: true }).click()
+    await expect(editor).not.toBeVisible()
+    await page.reload()
+    const saved = (await (await page.request.get('/api/v1/admin/accounts')).json()).items.find(
+      (a: { id: string }) => a.id === account.id,
+    )
+    expect(saved.cards[0].active).toBe(active)
+    expect(saved.cards[0].track_bills).toBe(tracking)
+    expect(saved.billing_enabled).toBe(active && tracking)
+    const overview = await (await page.request.get('/api/v1/admin/overview')).json()
+    expect(overview.latest_statements.some((s: { id: string }) => s.id === statement.id)).toBe(
+      active && tracking,
+    )
+    if (!active || !tracking) {
+      expect(
+        overview.warnings.some((w: { account_id: string }) => w.account_id === account.id),
+      ).toBe(false)
+      const response = await page.request.post('/api/v1/admin/statements', {
+        headers,
+        data: { account_id: account.id, statement_date: '2026-11-01' },
+      })
+      expect(response.status()).toBe(422)
+      expect((await response.json()).error.code).toBe('BILLING_NOT_TRACKED')
+    }
+    expect((await page.request.get(`/api/v1/admin/statements/${statement.id}`)).status()).toBe(200)
+  }
+  await openCardEditor(page, tile)
+  await expect(editor.getByRole('switch', { name: '追踪账单', exact: true })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  )
+  await editor.getByRole('switch', { name: '追踪账单', exact: true }).locator('..').click()
+  await editor.getByRole('button', { name: '取消', exact: true }).click()
+  await openCardEditor(page, tile)
+  await expect(editor.getByRole('switch', { name: '追踪账单', exact: true })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  )
+  await editor.getByRole('button', { name: '取消', exact: true }).click()
+  // New cards default to tracking but can opt out at creation.
+  expect(
+    (
+      await page.request.patch(`/api/v1/admin/cards/${card.id}`, {
+        headers,
+        data: { name: card.name, active: false },
+      })
+    ).status(),
+  ).toBe(200)
+  await page.reload()
+  await tile.getByRole('button', { name: '添加卡片', exact: true }).click()
+  const creator = page.getByRole('dialog', { name: '新增卡片', exact: true })
+  await expect(creator.getByRole('switch', { name: '追踪账单', exact: true })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  )
+  await creator.getByRole('textbox').first().fill('不追踪的新卡')
+  await creator.getByPlaceholder('填写 4 位尾号，或填写完整卡号自动提取').fill('9876')
+  await creator.getByRole('switch', { name: '追踪账单', exact: true }).locator('..').click()
+  await creator.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(creator).not.toBeVisible()
+  await tile.getByRole('button', { name: '不追踪的新卡 · 9876', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: '卡片详情', exact: true })).toContainText(
+    '不追踪账单',
+  )
+  const saved = (await (await page.request.get('/api/v1/admin/accounts')).json()).items.find(
+    (a: { id: string }) => a.id === account.id,
+  )
+  expect(saved.cards.find((c: { last_four: string }) => c.last_four === '9876').track_bills).toBe(
+    false,
+  )
+  expect(saved.billing_enabled).toBe(false)
+  await page
+    .getByRole('dialog', { name: '卡片详情', exact: true })
+    .getByRole('button', { name: '关闭', exact: true })
+    .click()
+  await page.getByRole('link', { name: '账单管理', exact: true }).click()
+  const historicalRow = page.locator('.el-table__row').filter({ hasText: '不追踪的新卡' })
+  await expect(historicalRow).toHaveCount(0)
+  await page.getByText('包含未追踪历史', { exact: true }).click()
+  await expect(historicalRow).toHaveCount(1)
+})

@@ -6,7 +6,15 @@ import { Plus, Refresh, Search, ArrowDown, ArrowUp } from '@element-plus/icons-v
 import AccountIdentity from '../components/AccountIdentity.vue'
 import { detailState } from '../model-types'
 import { api, allItems, ApiError } from '../api'
-import { amountText, dateTime, stateText, stateTagType, type Page, type Account, type Statement } from '../types'
+import {
+  amountText,
+  dateTime,
+  stateText,
+  stateTagType,
+  type Page,
+  type Account,
+  type Statement,
+} from '../types'
 const route = useRoute(),
   rows = ref<Statement[]>([]),
   accounts = ref<Account[]>([]),
@@ -23,6 +31,7 @@ const filterAccount = ref(String(route.query.account_id || '')),
   dateField = ref<'statement_date' | 'due_date'>('statement_date'),
   dateRange = ref<[string, string] | null>(null),
   moreFilters = ref(false),
+  includeUntracked = ref(false),
   filterStatus = ref(String(route.query.status || '')),
   detail = ref<Statement | null>(null),
   drawer = ref(false),
@@ -59,6 +68,7 @@ function cardLabel(account: Account) {
 const activeFilterCount = computed(
   () =>
     [
+      includeUntracked.value,
       appliedKeyword.value,
       filterBank.value,
       filterHolder.value,
@@ -88,6 +98,7 @@ function resetFilters() {
   ]) {
     filter.value = ''
   }
+  includeUntracked.value = false
   dateRange.value = null
   dateField.value = 'statement_date'
   changeFilter()
@@ -108,7 +119,11 @@ async function load() {
   const sequence = ++loadSequence
   loading.value = true
   try {
-    const params = new URLSearchParams({ page: String(page.value), page_size: '20' })
+    const params = new URLSearchParams({
+      page: String(page.value),
+      page_size: '20',
+      tracked_only: String(!includeUntracked.value),
+    })
     if (filterAccount.value) params.set('account_id', filterAccount.value)
     if (filterBank.value) params.set('bank_id', filterBank.value)
     if (filterHolder.value) params.set('cardholder_id', filterHolder.value)
@@ -381,9 +396,7 @@ onMounted(async () => {
               :label="cardLabel(account)"
               :aria-label="cardLabel(account)"
             >
-              <span class="statement-card-option-name">{{
-                accountCardsText(account)
-              }}</span>
+              <span class="statement-card-option-name">{{ accountCardsText(account) }}</span>
               <span class="statement-card-option-meta"
                 >{{ account.bank_name }} · {{ account.cardholder_name
                 }}{{ account.mode === 'merged' ? ' · 合并还款' : '' }}</span
@@ -450,6 +463,9 @@ onMounted(async () => {
       </div>
       <div class="statement-filter-footer">
         <div class="statement-filter-actions">
+          <el-checkbox v-model="includeUntracked" @change="changeFilter"
+            >包含未追踪历史</el-checkbox
+          >
           <el-button
             text
             type="primary"
@@ -541,12 +557,8 @@ onMounted(async () => {
         </div>
       </div>
       <el-descriptions :column="2" border
-        ><el-descriptions-item label="账单日">{{
-          detail.statement_date
-        }}</el-descriptions-item
-        ><el-descriptions-item label="到期日">{{
-          detail.due_date || '未知'
-        }}</el-descriptions-item
+        ><el-descriptions-item label="账单日">{{ detail.statement_date }}</el-descriptions-item
+        ><el-descriptions-item label="到期日">{{ detail.due_date || '未知' }}</el-descriptions-item
         ><el-descriptions-item label="最低还款">{{
           amountText(detail.minimum, detail.currency)
         }}</el-descriptions-item
@@ -556,9 +568,9 @@ onMounted(async () => {
         ><el-descriptions-item label="来源">{{
           detail.source_kind === 'model' ? '模型识别 / 已核对' : '人工录入'
         }}</el-descriptions-item
-        ><el-descriptions-item label="版本">v{{
-          detail.version
-        }}</el-descriptions-item></el-descriptions
+        ><el-descriptions-item label="版本"
+          >v{{ detail.version }}</el-descriptions-item
+        ></el-descriptions
       >
       <div class="detail-actions">
         <el-button v-if="detail.status === 'draft'" type="primary" @click="action('confirm')"
@@ -686,7 +698,7 @@ onMounted(async () => {
       ><el-form-item v-if="!editing" label="还款账户" required
         ><el-select v-model="form.account_id" filterable
           ><el-option
-            v-for="a in accounts.filter((a) => a.effective_active)"
+            v-for="a in accounts.filter((a) => a.billing_enabled ?? a.effective_active)"
             :key="a.id"
             :value="a.id"
             :label="`${a.bank_name} · ${a.cardholder_name} · ${a.name}`" /></el-select

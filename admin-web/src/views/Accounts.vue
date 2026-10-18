@@ -159,7 +159,7 @@ function open(kind: string, row?: any, accountId?: string) {
   entity.value = kind
   editing.value = row?.id || ''
   form.value = row
-    ? { ...row }
+    ? { ...row, track_bills: row.track_bills ?? true }
     : {
         name: '',
         code: '',
@@ -179,6 +179,7 @@ function open(kind: string, row?: any, accountId?: string) {
         annual_fee_month: null,
         annual_fee_day: null,
         annual_fee_benefits: '',
+        track_bills: true,
         active: true,
       }
   dialog.value = true
@@ -194,6 +195,7 @@ async function save() {
     return
   }
   const cardDetails = {
+    track_bills: f.track_bills ?? true,
     ...(f.card_number !== undefined
       ? { card_number: String(f.card_number || '').replace(/[ -]/g, '') || null }
       : {}),
@@ -456,6 +458,7 @@ onMounted(load)
           <span class="card-detail-tail" :aria-label="`卡片尾号 ${selectedCard.last_four}`"
             >· {{ selectedCard.last_four }}</span
           >
+          <span v-if="selectedCard.track_bills === false" class="card-detail-tail">不追踪账单</span>
         </div>
         <el-tag :type="selectedCard.active ? 'success' : 'danger'" size="small">
           {{ selectedCard.active ? '有效' : '已停用' }}
@@ -785,12 +788,29 @@ onMounted(load)
             show-word-limit
             placeholder="选填，例如首年免年费，每年刷满 6 笔免次年年费"
           />
-        </el-form-item> </template
-      ><el-form-item v-if="editing" label="有效状态"
-        ><el-switch
-          v-model="form.active"
-          active-text="有效"
-          inactive-text="停用" /></el-form-item></el-form
+        </el-form-item>
+      </template>
+      <div :class="{ 'card-status-options': entity === 'card' }">
+        <el-form-item v-if="editing" label="有效状态">
+          <el-switch
+            v-model="form.active"
+            aria-label="有效状态"
+            active-text="有效"
+            inactive-text="停用"
+          />
+        </el-form-item>
+        <el-form-item v-if="entity === 'card'" label="追踪账单">
+          <el-switch
+            v-model="form.track_bills"
+            aria-label="追踪账单"
+            active-text="是"
+            inactive-text="否"
+          />
+        </el-form-item>
+      </div>
+      <p v-if="entity === 'card'" class="card-field-hint card-tracking-hint">
+        仅有效且选择“是”的卡片参与账单追踪。关闭后保留历史账单和年费资料；合并账户仍有符合条件的卡片时继续追踪。
+      </p> </el-form
     ><template #footer
       ><el-button
         v-if="entity === 'card' && editing"
@@ -813,6 +833,17 @@ onMounted(load)
 </template>
 
 <style scoped>
+.card-status-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 20px;
+}
+.card-status-options :deep(.el-form-item) {
+  margin-bottom: 8px;
+}
+.card-tracking-hint {
+  margin: 0 0 12px;
+}
 :global(.card-editor-dialog) {
   display: flex;
   flex-direction: column;

@@ -47,7 +47,7 @@ onMounted(load)
         <div class="total-label">当前账单记录待还 <span>CNY</span></div>
         <div class="total-number"><small>¥</small>{{ amountText(cny).replace('¥ ', '') }}</div>
         <div class="total-bottom">
-          <span>{{ data.account_count }} 个有效还款账户</span><span>最新确认账单汇总</span>
+          <span>{{ data.account_count }} 个追踪中的还款账户</span><span>最新确认账单汇总</span>
         </div>
         <div v-if="data.totals.some((t) => t.currency !== 'CNY')" class="foreign-totals">
           <span v-for="t in data.totals.filter((t) => t.currency !== 'CNY')" :key="t.currency">{{

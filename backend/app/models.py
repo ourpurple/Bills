@@ -89,6 +89,7 @@ class Card(Identity, Base):
     last_four: Mapped[str] = mapped_column(String(4))
     name: Mapped[str] = mapped_column(String(80))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    track_bills: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
     card_number_ciphertext: Mapped[str | None] = mapped_column(Text)
     expiry: Mapped[str | None] = mapped_column(String(5))
     cvv_ciphertext: Mapped[str | None] = mapped_column(Text)

@@ -94,6 +94,7 @@ class AnnualFeeUpdate(Input):
 
 
 class CardFields(AnnualFeeUpdate):
+    track_bills: bool = True
     card_number: Annotated[str, Field(pattern=r"^[0-9]{12,19}$")] | None = Field(default=None, repr=False)
     expiry: Annotated[str, Field(pattern=r"^(0[1-9]|1[0-2])/[0-9]{2}$")] | None = None
     cvv: Annotated[str, Field(pattern=r"^[0-9]{3,4}$")] | None = Field(default=None, repr=False)

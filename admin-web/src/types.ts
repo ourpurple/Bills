@@ -28,6 +28,7 @@ export interface Card {
   name: string
   last_four: string
   active: boolean
+  track_bills?: boolean
   has_card_number?: boolean
   has_cvv?: boolean
   expiry?: string | null
@@ -42,6 +43,7 @@ export interface Account {
   id: string
   group_id: string
   effective_active: boolean
+  billing_enabled?: boolean
   name: string
   mode: 'merged' | 'independent'
   statement_day: number | null

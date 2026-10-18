@@ -106,6 +106,28 @@ def account_enabled(db, account):
     )
 
 
+def account_tracking_condition():
+    """Cardless legacy accounts keep working; cards opt in only when active and tracked."""
+    cards = select(Card.id).where(Card.account_id == Account.id)
+    tracked = cards.where(Card.active.is_(True), Card.track_bills.is_(True))
+    return or_(~cards.exists(), tracked.exists())
+
+
+def account_tracks_bills(db, account):
+    return bool(db.scalar(select(Account.id).where(Account.id == account.id, account_tracking_condition())))
+
+
+def account_billing_enabled(db, account):
+    return account_enabled(db, account) and account_tracks_bills(db, account)
+
+
+def require_billing_enabled(db, account):
+    if not account_enabled(db, account):
+        raise DomainError("INACTIVE_ACCOUNT", "停用账户不能新增或导入账单")
+    if not account_tracks_bills(db, account):
+        raise DomainError("BILLING_NOT_TRACKED", "此账户没有有效且开启追踪账单的卡片")
+
+
 def card_values(data, settings, existing=None):
     values = data.model_dump(exclude_unset=True)
     number = values.get("card_number")
@@ -133,6 +155,7 @@ def card_view(card):
         name=card.name,
         last_four=card.last_four,
         active=card.active,
+        track_bills=card.track_bills,
         has_card_number=bool(card.card_number_ciphertext),
         has_cvv=bool(card.cvv_ciphertext),
         expiry=card.expiry,
@@ -167,6 +190,7 @@ def account_view(db, account):
         statement_day=account.statement_day,
         active=account.active,
         effective_active=account_enabled(db, account),
+        billing_enabled=account_billing_enabled(db, account),
         bank_id=bank.id,
         bank_name=bank.name,
         bank_code=bank.code,
@@ -208,6 +232,7 @@ def plan_view(row):
 def statement_query(
     *,
     account_id=None,
+    tracked_only=True,
     bank_id=None,
     cardholder_id=None,
     keyword=None,
@@ -233,6 +258,8 @@ def statement_query(
         )
         .order_by(Statement.statement_date.desc(), Statement.id)
     )
+    if tracked_only:
+        query = query.where(Statement.account_id.in_(select(Account.id).where(account_tracking_condition())))
     for value, column in (
         (account_id, Statement.account_id),
         (bank_id, AccountGroup.bank_id),
@@ -386,11 +413,7 @@ def statement_view(db, statement, details=False):
 
 def create_statement(db, data, actor):
     account = require(db, Account, data.account_id)
-    group = require(db, AccountGroup, account.group_id)
-    bank = require(db, Bank, group.bank_id)
-    holder = require(db, Cardholder, group.cardholder_id)
-    if not account.active or not group.active or not bank.active or not holder.active:
-        raise DomainError("INACTIVE_ACCOUNT", "停用账户不能新增账单")
+    require_billing_enabled(db, account)
     existing = db.scalar(
         select(Statement).where(
             Statement.account_id == account.id,
@@ -496,9 +519,10 @@ def expected_statement_date(account, today):
 
 def overview(db):
     today = datetime.now(ZoneInfo("Asia/Shanghai")).date()
+    tracked_ids = select(Account.id).where(account_tracking_condition())
     confirmed = db.scalars(
         select(Statement)
-        .where(Statement.status == "confirmed")
+        .where(Statement.status == "confirmed", Statement.account_id.in_(tracked_ids))
         .order_by(Statement.statement_date.desc(), Statement.id)
     ).all()
     latest, historical, seen = [], [], set()
@@ -519,7 +543,9 @@ def overview(db):
     latest.sort(key=lambda s: (s["remaining"] == "0.00" or s["remaining"] == "0", s["due_date"] or "9999"))
     warnings = []
     active_accounts = [
-        a for a in db.scalars(select(Account).where(Account.active.is_(True))).all() if account_enabled(db, a)
+        a
+        for a in db.scalars(select(Account).where(Account.active.is_(True))).all()
+        if account_billing_enabled(db, a)
     ]
     for account in active_accounts:
         expected = expected_statement_date(account, today)
@@ -556,7 +582,9 @@ def overview(db):
         warnings=warnings,
         account_count=len(active_accounts),
         pending_count=db.scalar(
-            select(func.count()).select_from(Statement).where(Statement.status == "draft")
+            select(func.count())
+            .select_from(Statement)
+            .where(Statement.status == "draft", Statement.account_id.in_(tracked_ids))
         ),
         due_soon_count=sum(
             1
@@ -566,6 +594,6 @@ def overview(db):
             and 0 <= s["days_until_due"] <= 7
         ),
         overdue_count=sum(1 for s in latest if s["overdue"]),
-        disclaimer="仅汇总每个账户、币种的最新已确认账单；不代表银行实时负债。",
+        disclaimer="仅汇总追踪中账户、币种的最新已确认账单；未追踪历史可在账单管理查看，不代表银行实时负债。",
         as_of=today.isoformat(),
     )

@@ -1188,3 +1188,50 @@ def test_source_progress_includes_cached_results_for_equivalent_emails(admin):
     assert blocked.status_code == 409
     assert blocked.json()["error"]["code"] == "SOURCE_ALREADY_SAVED"
     assert fake.calls == []
+
+
+@pytest.mark.parametrize("active,tracking", [(True, False), (False, True), (False, False)])
+def test_candidate_publish_rechecks_card_tracking_even_with_active_sibling(admin, active, tracking):
+    config(admin)
+    a = account(admin)
+    original = next(x for x in admin.get("/api/v1/admin/accounts").json()["items"] if x["id"] == a["id"])[
+        "cards"
+    ][0]
+    row = candidate(admin, parse(admin, prepared(admin), FakeModel()))
+    assert row["match_state"] == "unique"
+    # A second eligible card must not authorize a stale candidate for the first card.
+    create(admin, "cards", dict(account_id=a["id"], name="仍追踪的卡", last_four="5678"))
+    response = admin.patch(
+        f"/api/v1/admin/cards/{original['id']}",
+        json={"name": original["name"], "active": active, "track_bills": tracking},
+    )
+    assert response.status_code == 200
+    response = publish(admin, row, acknowledge_warnings=True)
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["code"] == "BILLING_NOT_TRACKED"
+    edit = admin.patch(
+        f"/api/v1/admin/candidates/{row['id']}",
+        json={"expected_version": row["version"], "fields": row["fields"], "reason": "核对"},
+    )
+    assert edit.status_code == 422
+    assert admin.get("/api/v1/admin/statements").json()["total"] == 0
+
+
+def test_auto_publish_skips_card_when_tracking_disabled_during_model_call(admin):
+    config(admin, auto_publish_profiles=[dict(bank_code="cmb", media_type="message/rfc822", verified=True)])
+    a = account(admin)
+    original = next(x for x in admin.get("/api/v1/admin/accounts").json()["items"] if x["id"] == a["id"])[
+        "cards"
+    ][0]
+
+    def stop_tracking():
+        response = admin.patch(
+            f"/api/v1/admin/cards/{original['id']}",
+            json={"name": original["name"], "active": True, "track_bills": False},
+        )
+        assert response.status_code == 200
+
+    row = candidate(admin, parse(admin, prepared(admin), FakeModel(callback=stop_tracking)))
+    assert row["state"] == "pending"
+    assert row["match_state"] == "unmatched"
+    assert admin.get("/api/v1/admin/statements").json()["total"] == 0
