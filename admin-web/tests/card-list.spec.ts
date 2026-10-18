@@ -140,6 +140,24 @@ test('card list shows all cards and metadata with private details opt-in and syn
   await expect(legacy.locator('td').nth(5)).toHaveText('未设置')
   await expect(legacy).toContainText('所属账户已停用')
   await expect(legacy.locator('td').nth(8)).toHaveText('是')
+  // Explicit colors on badges, labels and the fixed action must also be muted.
+  for (const row of [inactive, legacy]) {
+    const detailsAction = row.getByRole('button', { name: '卡片详情', exact: true })
+    await expect(detailsAction).toBeEnabled()
+    for (const hovered of [false, true]) {
+      if (hovered) await detailsAction.hover()
+      await expect
+        .poll(() =>
+          row
+            .locator('td, .cell, .cell *')
+            .evaluateAll((elements) =>
+              [...new Set(elements.map((element) => getComputedStyle(element).color))].sort(),
+            ),
+        )
+        .toEqual(['rgb(163, 166, 160)'])
+    }
+  }
+  await expect(main.locator('.card-product-name')).not.toHaveCSS('color', 'rgb(163, 166, 160)')
   expect(privateRequests).toBe(0)
   await main.getByRole('button', { name: '卡片详情', exact: true }).click()
   const details = page.getByRole('dialog', { name: '卡片详情', exact: true })

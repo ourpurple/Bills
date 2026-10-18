@@ -1676,8 +1676,14 @@ onMounted(load)
   border-top: 2px solid #dce4d6;
 }
 .bank-card-table :deep(.is-inactive) {
+  --card-inactive-text-color: #a3a6a0;
   --el-table-tr-bg-color: #f8f9f5;
-  --el-table-text-color: #687365;
+  --el-table-text-color: var(--card-inactive-text-color);
+}
+.bank-card-table :deep(.is-inactive td.el-table__cell),
+.bank-card-table :deep(.is-inactive .cell),
+.bank-card-table :deep(.is-inactive .cell *) {
+  color: var(--card-inactive-text-color);
 }
 .bank-card-bank {
   display: flex;
