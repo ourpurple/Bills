@@ -86,12 +86,42 @@ class UiRulesTest {
         assertFalse(dueLabel(bill.copy(days = 5)).urgent)
         assertEquals(DueLabel("3", "天已逾期", true), dueLabel(bill.copy(days = -3, overdue = true)))
         assertEquals(
-            "已标记还清",
+            "已结清",
             dueLabel(bill.copy(paymentStatus = "settled", days = -3, overdue = true)).caption,
         )
         assertEquals("已标记超额", dueLabel(bill.copy(paymentStatus = "overpaid")).caption)
         assertEquals("到期日未知", dueLabel(bill.copy(days = null, due = null)).caption)
         assertEquals("已作废", dueLabel(bill.copy(status = "void")).caption)
+    }
+
+    @Test
+    fun staleSettledBillIsExplicitlyOldAndKeepsStatusPriority() {
+        val row =
+            bill.copy(needsUpdate = true, paymentStatus = "settled", overdue = true, days = -3)
+        assertEquals(DueLabel("✓", "旧账单已结清", false), dueLabel(row))
+        assertEquals("已作废", dueLabel(row.copy(status = "void")).caption)
+        assertEquals("已标记超额", dueLabel(row.copy(paymentStatus = "overpaid")).caption)
+        assertEquals("已结清", status("settled"))
+    }
+
+    @Test
+    fun billUpdateNoticeOnlyUsesServerFlagAndOptionalDate() {
+        val row = bill.copy(expectedStatementDate = "2026-10-13")
+        assertNull(billUpdateNotice(row))
+        assertEquals("本期应出账：10-13", billUpdateNotice(row.copy(needsUpdate = true)))
+        assertNull(billUpdateNotice(row.copy(needsUpdate = true, expectedStatementDate = null)))
+        assertNull(billUpdateNotice(bill))
+    }
+
+    @Test
+    fun balanceCaptionDistinguishesOldBillsAndUnknownAmounts() {
+        assertEquals("本期待还 · CNY", balanceCaption(bill))
+        assertEquals("旧账单待还 · CNY", balanceCaption(bill.copy(needsUpdate = true)))
+        assertEquals("待更新 · 本期待还 · CNY", balanceCaption(bill.copy(remaining = null)))
+        assertEquals(
+            "待更新 · 旧账单待还 · USD",
+            balanceCaption(bill.copy(needsUpdate = true, remaining = null, currency = "USD")),
+        )
     }
 
     @Test
@@ -212,6 +242,12 @@ class UiRulesTest {
     fun freshRepaymentSummaryMustKeepIdentityVersionBalanceAndCurrency() {
         assertTrue(sameHomePaymentBill(bill, bill))
         assertTrue(sameHomePaymentBill(bill, bill.copy(days = 0, overdue = false)))
+        assertTrue(
+            sameHomePaymentBill(
+                bill,
+                bill.copy(needsUpdate = true, expectedStatementDate = "2026-10-13"),
+            )
+        )
         listOf(
                 bill.copy(id = "other"),
                 bill.copy(account = account.copy(id = "other")),

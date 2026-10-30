@@ -92,6 +92,7 @@ data class Account(
     val mode: String,
     val active: Boolean,
     val tails: List<String>,
+    val hasTrackedCard: Boolean = true,
 )
 
 data class Statement(
@@ -113,6 +114,8 @@ data class Statement(
     val periodStart: String?,
     val periodEnd: String?,
     val source: String,
+    val needsUpdate: Boolean = false,
+    val expectedStatementDate: String? = null,
 )
 
 data class Total(val currency: String, val amount: String)
@@ -185,7 +188,7 @@ fun status(value: String): String =
         "confirmed" -> "已确认"
         "draft" -> "待后台确认"
         "void" -> "已作废"
-        "settled" -> "已标记结清"
+        "settled" -> "已结清"
         "overpaid" -> "已标记超额"
         "partial" -> "已标记部分还款"
         "unpaid" -> "尚未标记还款"

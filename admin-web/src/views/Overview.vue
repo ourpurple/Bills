@@ -113,7 +113,7 @@ onMounted(load)
         </div>
         <div class="bill-deadline" :class="{ urgent: isUrgent(s) }">
           <el-tag v-if="s.payment_status === 'settled'" type="success">{{
-            s.needs_update ? '旧账单已标记结清' : stateText(s)
+            s.needs_update ? '旧账单已结清' : stateText(s)
           }}</el-tag>
           <strong v-else class="bill-due-countdown">
             <template
@@ -130,7 +130,7 @@ onMounted(load)
           <span class="bill-due-date">{{ s.due_date || '待确认' }}</span>
         </div>
         <div class="bill-amount" :class="{ urgent: isUrgent(s) }">
-          <span>{{ s.needs_update ? '旧账单记录待还' : '记录待还' }}</span
+          <span>{{ s.needs_update ? '旧账单待还' : '记录待还' }}</span
           ><strong>{{ amountText(s.remaining, s.currency) }}</strong
           ><small v-if="s.payment_status === 'partial'"
             >已标记 {{ amountText(s.paid, s.currency) }}</small

@@ -69,7 +69,7 @@ for (const width of [1440, 768, 390, 320]) {
       const deadline = row.locator('.bill-deadline')
       if (c.remaining === '0.00') {
         const tag = deadline.locator('.el-tag--success')
-        await expect(tag).toHaveText('已标记结清')
+        await expect(tag).toHaveText('已结清')
         await expect(tag).toHaveCSS('color', 'rgb(103, 194, 58)')
         await expect(tag).toHaveCSS('background-color', 'rgb(240, 249, 235)')
         await expect(tag).toHaveCSS('border-top-color', 'rgb(225, 243, 216)')
@@ -165,7 +165,7 @@ for (const width of [1440, 768, 390, 320]) {
       })
       await row.getByRole('button', { name: '详情', exact: true }).click()
       const tag = page.locator('.detail-heading .el-tag--success')
-      await expect(tag).toHaveText('已标记结清')
+      await expect(tag).toHaveText('已结清')
       await expect(tag).toHaveCSS('color', 'rgb(103, 194, 58)')
       await expect(tag).toHaveCSS('background-color', 'rgb(240, 249, 235)')
       await page.keyboard.press('Escape')
@@ -238,7 +238,7 @@ for (const width of [1440, 390]) {
       if (c.stale) {
         await expect(row.locator('.bill-update-notice .el-tag--warning')).toHaveText('待更新账单')
         await expect(row.locator('.bill-update-notice small')).toHaveText('本期应出账：2026-10-13')
-        await expect(row.locator('.bill-amount > span')).toHaveText('旧账单记录待还')
+        await expect(row.locator('.bill-amount > span')).toHaveText('旧账单待还')
         const bounds = (await row.boundingBox())!
         const notice = (await row.locator('.bill-update-notice').boundingBox())!
         expect(notice.x + notice.width).toBeLessThanOrEqual(bounds.x + bounds.width)
@@ -248,7 +248,7 @@ for (const width of [1440, 390]) {
       }
       if (c.remaining === '0.00') {
         await expect(row.locator('.bill-deadline .el-tag--success')).toHaveText(
-          c.stale ? '旧账单已标记结清' : '已标记结清',
+          c.stale ? '旧账单已结清' : '已结清',
         )
       }
     }
@@ -262,6 +262,6 @@ for (const width of [1440, 390]) {
     await expect(page.locator('.bill-update-notice')).toHaveCount(0)
     await expect(
       page.locator('.bill-row').first().locator('.bill-deadline .el-tag--success'),
-    ).toHaveText('已标记结清')
+    ).toHaveText('已结清')
   })
 }

@@ -9,6 +9,7 @@
 - v1.3 变更：记录 P2 本地开发交付和验收；邮件语义仍仅由 P3 大模型识别，不包含真实邮箱、模型或 VPS 验收。
 - v1.4 变更：记录 P3 0.3.0 本地交付，保留真实服务商 / 银行样本和超长详单分块的验收边界；默认人工核对，仅大模型解析约束不变。
 - v1.5 变更：记录 P4 安卓实现、分页移动端接口、加密缓存与提交不确定性保护；设备测试未运行，保留真机验收和正式签名边界，下一阶段 P5。
+- v1.6 变更（2026-10-30）：新增第 23 节迭代计划——安卓首页实现与 Web 一致的“待更新账单”标注；Web 与安卓的结清状态文案统一为“已结清”，待更新金额标题统一为“旧账单待还”。仅为计划，尚未改代码。
 - 文档用途：作为后续开发、验收、部署和需求变更的基线；实测结果与已知限制见 `docs/progress.md`。
 - 说明：用户已经确认本计划并授权开始开发。勾选项表示对应阶段已实现并完成注明范围内的验收；未勾选项仍待完成，不代表已验证真实银行、邮箱、模型或 VPS 环境。
 
@@ -36,6 +37,7 @@
 20. 首版完成定义与交付物
 21. 待补充资料和后续迭代
 22. 技术参考
+23. 迭代计划：安卓“待更新账单”标注与结清文案统一
 
 ## 1. 项目目标与设计原则
 
@@ -1049,6 +1051,158 @@ D:\code\Bills\
 - [R11] SQLite：Online Backup API。`https://www.sqlite.org/backup.html`
 - 补充：Alembic 官方文档，数据库迁移。`https://alembic.sqlalchemy.org/en/latest/`
 - 补充：SQLAlchemy 官方文档。`https://docs.sqlalchemy.org/en/20/`
+
+## 23. 迭代计划：安卓“待更新账单”标注与结清文案统一
+
+- 状态：2026-10-30 功能、测试及文档已实现；后端回归、Web 相关 E2E、安卓 JVM/JSON 测试和构建通过。Web 全量 3 项非本次文案路径失败、安卓 UI 测试框架兼容阻塞，详见 23.9；不视为全部设备界面验收通过。
+- 范围：安卓 App 首页 + Web 管理端结清文案与待更新金额标题；后端不改。
+
+### 23.1 目标
+
+1. 安卓首页“当前账单”与 Web 概览一致：当前日期已过本期账单日、但尚未收到（确认）本期账单时，在该账户卡片上标注“待更新账单”及本期应出账日期。
+2. Web 与安卓的“结清”状态文案统一为“已结清”。
+3. 待更新账单的金额标题两端统一为“旧账单待还”。
+
+### 23.2 已确认决策
+
+| # | 问题 | 决策 |
+| --- | --- | --- |
+| 1 | 结清状态文案 | Web 与安卓统一为 **“已结清”**；待更新的旧账单已结清时显示 **“旧账单已结清”** |
+| 2 | 离线时是否本地判定“待更新” | **不本地判定**，只使用服务端返回的 `needs_update`；离线缓存保持缓存时刻的结果，联网刷新后更新 |
+| 3 | 首页显示方式 | 排序、“即将到期”筛选、还款按钮**均不变**；仅新增一行“待更新账单 · 本期应出账：MM-DD”，金额标题改为“旧账单待还” |
+| 4 | 待更新金额标题 | Web 与安卓统一为 **“旧账单待还”**（Web 原为“旧账单记录待还”） |
+
+### 23.3 现状分析
+
+- 后端：`/api/v1/admin/overview` 与 `/api/v1/app/overview` 共用 `backend/app/services.py` 的 `overview()`，`latest_statements` 每项已返回：
+  - `needs_update: bool`
+  - `expected_statement_date: string | null`（ISO 日期）
+- 判定规则（服务端，Asia/Shanghai 当日，**本次不改**）：
+  - `expected_statement_date(account, today)`：账户未配置账单日返回空；账单日超过当月天数取月末；本月账单日尚未到达则取上月账单日。
+  - `needs_update = expected 存在 && expected < today && 最新已确认账单的 statement_date < expected`。
+  - 仅对启用且开启账单跟踪的账户计算，其余账户恒为 `false`。
+- Web（`admin-web/src/views/Overview.vue`）：`needs_update` 为真时显示橙色标签“待更新账单”+“本期应出账：YYYY-MM-DD”；已结清时显示“旧账单已标记结清”；金额标题改为“旧账单记录待还”。
+- 安卓：`Json.statement()` 未解析上述两个字段，`Statement`（`Core.kt`）没有对应属性，首页 `StatementRow`（`HomeScreen.kt`）无相应展示。
+- 结清文案现状不一致：
+  - Web：`types.ts` `stateText` 为“已标记结清”，`Statements.vue` 筛选项为“已标记结清”，`Overview.vue` 为“旧账单已标记结清”。
+  - 安卓：首页到期状态 `UiRules.kt` `dueLabel` 为“已标记还清”，详情 `Core.kt` `status()` 为“已标记结清”。
+
+### 23.4 实施步骤
+
+#### A. 安卓数据层
+
+1. `android/app/src/main/java/dev/bills/app/Core.kt`：`Statement` 末尾新增
+   - `val needsUpdate: Boolean = false`
+   - `val expectedStatementDate: String? = null`
+   - 使用默认值，现有测试中的构造调用无需全部修改。
+2. `android/app/src/main/java/dev/bills/app/Json.kt`：`statement()` 宽松解析
+   - `needs_update`：缺失或 null 视为 `false`（`optBoolean`）。
+   - `expected_statement_date`：复用现有 `text()`，缺失或 null 为 `null`。
+   - `statement()` 同时用于历史账单、账户历史、账单详情等接口，这些接口不返回该字段，必须不报错；旧版加密缓存同理，读出为 `false`。
+
+#### B. 安卓展示规则（`UiRules.kt`）
+
+1. `dueLabel`：
+   - `settled` 且 `needsUpdate` → `DueLabel("✓", "旧账单已结清", false)`
+   - `settled` 且非待更新 → `DueLabel("✓", "已结清", false)`（原“已标记还清”）
+   - 其他分支（超额、作废、未知、逾期、今/明/N 天）不变。
+2. 新增纯函数，便于单测：
+   - `billUpdateNotice(row): String?`：仅 `needsUpdate` 为真且有应出账日时返回 `"本期应出账：MM-DD"`（复用 `shortDate`），否则为 `null`；标签独立由 `needsUpdate` 控制，日期缺失时仍显示标签。
+   - `balanceCaption(row): String`：待更新时 `"旧账单待还 · ${currency}"`，否则 `"本期待还 · ${currency}"`；金额未知时保留现有 `"待更新 · "` 前缀逻辑。
+
+#### C. 安卓首页 UI（`HomeScreen.kt`）
+
+1. `StatementRow`：在账户身份行与金额/到期行之间，`needsUpdate` 为真时插入提示行：
+   - 橙色小标签“待更新账单”（复用 Coral 色调，浅底圆角）+ 灰色（Muted）11sp 文本“本期应出账：MM-DD”。
+   - testTag：`bill-update-${row.id}`；标签 `bill-update-tag-${row.id}`；日期 `bill-update-date-${row.id}`。
+   - 不含金额，隐藏金额模式下照常显示。
+   - 宽度不足或大字体时允许换行，不挤压金额与到期区域；常规、窄屏（<280dp）、大字体（fontScale > 1.2）三种布局都要检查。
+2. `StatementBalance`：说明文字改用 `balanceCaption(row)`。
+3. 明确不变：
+   - `homeStatementRows` 排序与 `upcoming` 筛选。
+   - `hasRepayableBalance` / `canRecordHomePayment`：旧账单仍有余额时照常可记录还款。
+   - `sameHomePaymentBill` 不比较 `needsUpdate`，跨账单日刷新时不阻断还款提交。
+   - `MissingStatementRow`（账户完全没有已确认账单）保持现状。
+   - 历史未结清（history 模式）列表不显示该提示（服务端不返回该字段）。
+
+#### D. 文案统一：“已结清”与“旧账单待还”
+
+| 位置 | 原文案 | 新文案 |
+| --- | --- | --- |
+| `admin-web/src/types.ts` `stateText` | 已标记结清 | 已结清 |
+| `admin-web/src/types.ts` `stateTagType` 的 case | 已标记结清 | 已结清（保持 success 样式） |
+| `admin-web/src/views/Overview.vue` 待更新已结清标签 | 旧账单已标记结清 | 旧账单已结清 |
+| `admin-web/src/views/Statements.vue` 状态筛选项 label | 已标记结清 | 已结清（value 仍为 `settled`） |
+| `android/.../UiRules.kt` `dueLabel` | 已标记还清 | 已结清 / 旧账单已结清 |
+| `android/.../Core.kt` `status()` | 已标记结清 | 已结清 |
+| `admin-web/src/views/Overview.vue` 待更新账单金额标题（`.bill-amount > span`） | 旧账单记录待还 | 旧账单待还 |
+| `android/.../UiRules.kt` `balanceCaption`（新增） | 本期待还 · 币种 | 待更新时为 旧账单待还 · 币种 |
+
+- 只改**状态标签**；“已标记超额”“已标记部分还款”“超额标记”“部分还款”等其他状态不变。
+- 描述性句子保持原样，如 Web“N 份历史账单尚未标记结清”、README 免责声明和本计划业务规则中的“标记结清”。页面底部已有“金额来自人工确认或用户记录，不代表银行到账状态”提示，可继续说明“已结清”是用户记录状态。
+- 只统一待更新账单的金额标题；Web 普通账单“记录待还”、概览“当前账单记录待还”、账单列表/详情“记录待还”以及安卓“本期待还”等其他金额文案不变。
+
+#### E. 文档
+
+- `android/README.md`：将“已还清 / 已标记还清”更新为“已结清”，并补充首页“待更新账单”说明（服务端判定、离线不重新计算）。
+- `docs/progress.md`：实施完成后记录实际验收结果与未验证项。
+
+### 23.5 不改动范围
+
+- 后端判定逻辑、接口字段、数据库结构。
+- 安卓本地重新计算待更新状态（安卓账户模型没有账单日，按决策 2 不做）。
+- 排序、筛选、还款入口、提醒逻辑。
+
+### 23.6 测试与验收
+
+| 层次 | 文件 | 用例 |
+| --- | --- | --- |
+| 后端回归 | `backend/tests/test_overview_updates.py`、`test_billing.py` | 不改，执行确认字段契约未变 |
+| Web E2E | `admin-web/tests/overview.spec.ts` | 期望改为“已结清”“旧账单已结清”；待更新金额标题断言由“旧账单记录待还”改为“旧账单待还”，普通账单仍为“记录待还”；待更新标签与“本期应出账”保持通过 |
+| Web E2E | `admin-web/tests/statements.spec.ts`、`statement-filters.spec.ts` | 结清标签与筛选项改为“已结清” |
+| 安卓 JVM | `android/app/src/test/.../UiRulesTest.kt` | 已结清 → “已结清”；待更新已结清 → “旧账单已结清”；`billUpdateNotice` 有日期、无日期、非待更新；`balanceCaption` 正常、待更新、金额未知 |
+| 安卓 JVM | `android/app/src/test/.../HomeCardsTest.kt` | 待更新账单的排序与 upcoming 筛选结果与未标记时一致；仍可显示还款入口 |
+| 安卓设备 | `android/app/src/androidTest/.../HomeCardJsonTest.kt` | 有字段正确解析；字段缺失/null 时为 `false`/`null`（org.json 需在设备测试中运行） |
+| 安卓设备 | `android/app/src/androidTest/.../ReferenceUiTest.kt` | 待更新卡片显示 `bill-update-*` 及“本期应出账：MM-DD”、“旧账单待还”；普通卡片不显示；窄屏/大字体布局不重叠 |
+
+执行命令：
+
+- 后端：`pytest backend/tests/test_overview_updates.py backend/tests/test_billing.py`
+- Web：`npm run build`（含 vue-tsc 类型检查）、`npm run test:e2e`
+- 安卓：`.\gradlew.bat testDebugUnitTest lintDebug assembleDebug`；有可用模拟器/真机时执行 `connectedDebugAndroidTest`。本机此前模拟器不可用，如仍无法运行需如实记录为未执行。
+
+验收标准：
+
+1. 同一服务端数据下，安卓首页与 Web 概览“待更新账单”的账户集合一致，应出账日期一致（安卓显示 MM-DD）。
+2. Web 与安卓所有结清状态标签均显示“已结清”，不再出现“已标记还清 / 已标记结清”标签。
+3. Web 与安卓待更新账单的金额标题均为“旧账单待还”，不再出现“旧账单记录待还”。
+4. 旧缓存、历史接口无新字段时不崩溃、不误标。
+
+### 23.7 风险与注意事项
+
+- 离线缓存的标记可能过时（按决策 2 接受），联网刷新即恢复准确。
+- 工作区中 `Core.kt`、`Json.kt`、`HomeScreen.kt`、`UiRules.kt`、`BillsViewModel.kt` 及相关测试有未提交改动，实施时在其基础上增量修改，不覆盖、不回退。
+- “已结清”去掉了“标记”二字，含义仍是用户记录状态，依赖页面现有免责声明说明非银行确认。
+
+### 23.8 任务清单
+
+- [x] A 安卓 `Statement` 新增字段并宽松解析
+- [x] B 安卓展示规则：`dueLabel` 结清文案、`billUpdateNotice`、`balanceCaption`
+- [x] C 安卓首页待更新提示行与金额说明（实现及编译完成，设备 UI 验收限制见下）
+- [x] D Web 与安卓结清文案统一为“已结清”，待更新金额标题统一为“旧账单待还”
+- [x] E 更新 `android/README.md`、`docs/progress.md` 与本节验收记录
+- [x] 测试：后端 52 项、Web 相关 18 项、安卓 JVM 77 项及设备 JSON 7 项通过；Web 构建、安卓 lint/安装包/测试包编译通过
+- [ ] 安卓 UI 布局与交互有效验收：当前设备与 Espresso 不兼容，需兼容设备或测试框架适配后运行
+
+### 23.9 实施与验证记录（2026-10-30）
+
+- 实施文件：安卓 `Core.kt`、`Json.kt`、`UiRules.kt`、`HomeScreen.kt` 及规则/首页/JSON 测试；Web `types.ts`、`Overview.vue`、`Statements.vue` 及对应 E2E；保留原工作区其他修改。
+- 后端：`.venv\Scripts\python.exe -m pytest backend/tests/test_overview_updates.py backend/tests/test_billing.py -q`，52 项通过；本次无后端代码和数据库改动。
+- Web：`npm run build` 通过（含类型检查）；全量 `npm run test:e2e` 为 52 通过 / 3 失败。失败分别为年费卡片按钮定位超时，以及 1440px/390px 概览跳转测试未预期原有 `tracked_only` 查询参数；未扩大修改这些逻辑。
+- Web 相关复跑：`npm run test:e2e -- tests/overview.spec.ts tests/statements.spec.ts tests/statement-filters.spec.ts --grep-invert "overview view filters all statements"`，18 项通过；包含两端文案对应的概览/账单标签及筛选验证。
+- 安卓：Wrapper 因下载 Gradle 阻塞，改用本机已有 Gradle 8.9 `testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --offline`，77 项 JVM 测试通过；lint 0 错误 / 1 项既有 kapt 建议；两个 APK 均编译成功。本次新增 4 项 JVM 测试、3 项 JSON 测试、6 项 Compose UI 测试。
+- 设备：已授权 PLR110（Android 17 / API 37）。Gradle `connectedDebugAndroidTest` 因缺少离线 UTP 插件失败，使用 `adb install -r` 安装生成的安装包/测试包后，直接通过 `am instrument -w -e class ...` 运行合成测试。`HomeCardJsonTest` 单独复跑结果为 `OK (7 tests)`；`ReferenceUiTest` 因现有 Espresso 3.5.0 找不到 `InputManager.getInstance` 而阻断，新增/既有 UI 用例均受影响，不能宣称通过布局验收。
+- 未执行 `UiFlowTest`、生产数据写入、VPS 部署或正式签名发布；按用户后续要求，Web / 安卓版本统一为 `0.5.0`，安卓 versionCode 为 20（Debug 包 `0.5.0-debug`），使用中文 Git 提交信息。详细结果与限制同步记录在 `docs/progress.md` 的本次增补验收章节。
 
 ---
 

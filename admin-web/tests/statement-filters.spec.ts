@@ -149,7 +149,7 @@ test('pagination resets and repayment states match the query', async ({ page }) 
   const request = page.waitForRequest(
     (r) => r.url().includes('/admin/statements?') && r.url().includes('payment_state=settled'),
   )
-  await choose(page, '账单状态筛选', '已标记结清')
+  await choose(page, '账单状态筛选', '已结清')
   expect(new URL((await request).url()).searchParams.get('page')).toBe('1')
   await expect(page.locator('.statement-filter-footer')).toContainText('6 份账单')
   await expect(page.locator('.statement-identity')).toHaveCount(6)

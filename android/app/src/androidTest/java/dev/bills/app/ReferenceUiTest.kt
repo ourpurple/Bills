@@ -114,7 +114,12 @@ class ReferenceUiTest {
 
     private var homePayment: HomePayment? = null
 
-    private fun show(initial: UiState = base, narrow: Boolean = false, largeFont: Boolean = false) {
+    private fun show(
+        initial: UiState = base,
+        narrow: Boolean = false,
+        largeFont: Boolean = false,
+        widthDp: Int = 320,
+    ) {
         state.value = initial
         compose.setContent {
             val density = LocalDensity.current
@@ -122,7 +127,7 @@ class ReferenceUiTest {
                 LocalDensity provides
                     Density(density.density, if (largeFont) 1.6f else density.fontScale)
             ) {
-                Box(if (narrow) Modifier.width(320.dp) else Modifier) {
+                Box(if (narrow) Modifier.width(widthDp.dp) else Modifier) {
                     BillsSurface(
                         state.value,
                         UiActions(
@@ -210,6 +215,126 @@ class ReferenceUiTest {
                 .compress(Bitmap.CompressFormat.PNG, 100, it)
         }
     }
+
+    private fun staleHome(row: Statement = bill): UiState =
+        base.copy(
+            home =
+                base.home!!.copy(
+                    latest =
+                        listOf(row.copy(needsUpdate = true, expectedStatementDate = "2026-10-23"))
+                )
+        )
+
+    @Test
+    fun staleBillShowsNoticeAndOldBalanceUntilFreshOverviewArrives() {
+        show(staleHome())
+        compose.onNodeWithTag("bill-update-tag-s", useUnmergedTree = true).assertTextEquals("待更新账单")
+        compose
+            .onNodeWithTag("bill-update-date-s", useUnmergedTree = true)
+            .assertTextEquals("本期应出账：10-23")
+        compose
+            .onNodeWithTag("bill-balance-caption-s", useUnmergedTree = true)
+            .assertTextEquals("旧账单待还 · CNY")
+        compose.onNodeWithTag("home-pay-s").assertIsEnabled().performClick()
+        compose.onNodeWithTag("payment-amount").assertExists()
+        compose.onNodeWithText("取消", useUnmergedTree = true).performClick()
+        assertNull(homePayment)
+        // A confirmed current statement is delivered by the refreshed overview, not a local clock.
+        compose.runOnIdle {
+            state.value =
+                base.copy(home = base.home!!.copy(latest = listOf(bill.copy(date = "2026-10-23"))))
+        }
+        compose.onNodeWithTag("bill-update-s", useUnmergedTree = true).assertDoesNotExist()
+        compose
+            .onNodeWithTag("bill-balance-caption-s", useUnmergedTree = true)
+            .assertTextEquals("本期待还 · CNY")
+    }
+
+    @Test
+    fun ordinaryBillDoesNotShowNoticeAndSettledLabelsAreUnified() {
+        show(
+            base.copy(
+                home =
+                    base.home!!.copy(
+                        latest = listOf(bill.copy(paymentStatus = "settled", remaining = "0.00"))
+                    )
+            )
+        )
+        compose.onNodeWithTag("bill-update-s", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithTag("due-caption-s", useUnmergedTree = true).assertTextEquals("已结清")
+        compose.runOnIdle {
+            state.value = staleHome(bill.copy(paymentStatus = "settled", remaining = "0.00"))
+        }
+        compose.onNodeWithTag("due-caption-s", useUnmergedTree = true).assertTextEquals("旧账单已结清")
+        compose.onNodeWithTag("bill-update-tag-s", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithTag("home-pay-s").assertDoesNotExist()
+    }
+
+    @Test
+    fun cachedHiddenBillKeepsServerNoticeAndMissingDateDoesNotShowUnknown() {
+        show(staleHome().copy(cached = true, amountsHidden = true))
+        compose
+            .onNodeWithTag("bill-update-date-s", useUnmergedTree = true)
+            .assertTextEquals("本期应出账：10-23")
+        compose
+            .onNodeWithTag("bill-balance-caption-s", useUnmergedTree = true)
+            .assertTextEquals("旧账单待还 · CNY")
+        compose.onNodeWithTag("home-pay-s").assertIsNotEnabled()
+        compose.onNodeWithText("2,680.00", useUnmergedTree = true).assertDoesNotExist()
+        compose.runOnIdle {
+            val old = state.value.home!!
+            state.value =
+                state.value.copy(
+                    home =
+                        old.copy(
+                            latest = listOf(old.latest.single().copy(expectedStatementDate = null))
+                        )
+                )
+        }
+        compose.onNodeWithTag("bill-update-tag-s", useUnmergedTree = true).assertTextEquals("待更新账单")
+        compose.onNodeWithTag("bill-update-date-s", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    private fun assertStaleNoticeLayout(narrow: Boolean = false, largeFont: Boolean = false) {
+        show(staleHome(), narrow = narrow, largeFont = largeFont, widthDp = 280)
+        val notice =
+            compose
+                .onNodeWithTag("bill-update-s", useUnmergedTree = true)
+                .assertIsDisplayed()
+                .fetchSemanticsNode()
+                .boundsInRoot
+        val tag =
+            compose
+                .onNodeWithTag("bill-update-tag-s", useUnmergedTree = true)
+                .assertIsDisplayed()
+                .fetchSemanticsNode()
+                .boundsInRoot
+        val date =
+            compose
+                .onNodeWithTag("bill-update-date-s", useUnmergedTree = true)
+                .assertIsDisplayed()
+                .fetchSemanticsNode()
+                .boundsInRoot
+        val balance =
+            compose
+                .onNodeWithTag("bill-balance-caption-s", useUnmergedTree = true)
+                .assertIsDisplayed()
+                .fetchSemanticsNode()
+                .boundsInRoot
+        assertTrue(tag.right <= notice.right && date.right <= notice.right)
+        assertTrue(date.left >= tag.right || date.top >= tag.bottom)
+        assertTrue(balance.top >= notice.bottom)
+        compose.onNodeWithTag("home-pay-s").assertIsDisplayed().assertIsEnabled()
+        snapshot("stale-bill-${narrow}-${largeFont}")
+    }
+
+    @Test fun staleNoticeFitsNormalWidth() = assertStaleNoticeLayout()
+
+    @Test fun staleNoticeWrapsOnNarrowWidth() = assertStaleNoticeLayout(narrow = true)
+
+    @Test
+    fun staleNoticeWrapsWithNarrowWidthAndLargeFont() =
+        assertStaleNoticeLayout(narrow = true, largeFont = true)
 
     @Test
     fun threeTabsAndBankListMatchReferenceStructure() {
@@ -475,6 +600,13 @@ class ReferenceUiTest {
                 base.copy(cached = true),
                 base.copy(busy = true),
                 base.copy(pending = Pending("scope", "key", "path", "{}", "pending")),
+            )
+        disabled.forEach { changed ->
+            compose.runOnIdle { state.value = changed }
+            compose.onNodeWithTag("home-pay-s0").assertIsNotEnabled()
+        }
+        compose.runOnIdle {
+            state.value =
                 base.copy(
                     home =
                         base.home!!.copy(
@@ -483,12 +615,10 @@ class ReferenceUiTest {
                                     bills[0].copy(account = bills[0].account.copy(active = false))
                                 )
                         )
-                ),
-            )
-        disabled.forEach { changed ->
-            compose.runOnIdle { state.value = changed }
-            compose.onNodeWithTag("home-pay-s0").assertIsNotEnabled()
+                )
         }
+        compose.onNodeWithTag("bill-s0").assertDoesNotExist()
+        compose.onNodeWithTag("home-pay-s0").assertDoesNotExist()
         compose.runOnIdle { state.value = base }
         compose.onNodeWithTag("home-pay-s0").assertIsEnabled()
         compose.runOnIdle { assertNull(homePayment) }
@@ -726,6 +856,67 @@ class ReferenceUiTest {
     }
 
     @Test
+    fun homeHidesCardlessAndUntrackedPlaceholdersButShowsNewTrackedCard() {
+        val newCard = account.copy(id = "new-card", bankName = "中国银行", tails = listOf("4853"))
+        val hidden =
+            listOf(
+                account.copy(id = "no-card", tails = emptyList()),
+                account.copy(id = "not-tracked", hasTrackedCard = false),
+                account.copy(id = "inactive", active = false),
+            )
+        show(
+            base.copy(
+                home = base.home!!.copy(latest = emptyList()),
+                homeAccounts = hidden + newCard,
+                accounts = Page(hidden, hidden.size, 1, 20),
+            )
+        )
+        compose.onNodeWithTag("missing-new-card").assertIsDisplayed()
+        compose.onNodeWithText("中行  测试持卡人 4853").assertIsDisplayed()
+        compose.onNodeWithText("待更新").assertIsDisplayed()
+        hidden.forEach { compose.onNodeWithTag("missing-${it.id}").assertDoesNotExist() }
+        compose.onNode(hasText("无有效卡片", substring = true)).assertDoesNotExist()
+    }
+
+    @Test
+    fun homeHidesExistingBillsWhenCardsAreRemovedOrTrackingIsOff() {
+        val hidden =
+            listOf(
+                bill.copy(
+                    id = "no-card",
+                    account = account.copy(id = "no-card", tails = emptyList()),
+                ),
+                bill.copy(
+                    id = "not-tracked",
+                    account = account.copy(id = "not-tracked", hasTrackedCard = false),
+                ),
+            )
+        show(
+            base.copy(
+                home = base.home!!.copy(latest = hidden + bill),
+                homeAccounts = hidden.map { it.account } + account,
+            )
+        )
+        compose.onNodeWithTag("bill-s").assertIsDisplayed()
+        hidden.forEach { compose.onNodeWithTag("bill-${it.id}").assertDoesNotExist() }
+    }
+
+    @Test
+    fun homeAccountInventoryDoesNotFollowPickerPaginationAndReportsIncompleteRead() {
+        show(
+            base.copy(
+                home = base.home!!.copy(latest = emptyList()),
+                homeAccounts = listOf(account),
+                homeAccountsIncomplete = true,
+                accounts = Page(emptyList(), 21, 2, 20),
+            )
+        )
+        compose.onNodeWithTag("missing-a").assertIsDisplayed()
+        compose.onNodeWithTag("screen-home").performScrollToNode(hasText("账户列表尚未完整读取，请下拉重试"))
+        compose.onNodeWithText("账户列表尚未完整读取，请下拉重试").assertIsDisplayed()
+    }
+
+    @Test
     fun homeOmitsWarningBlockAndUpdateButtonsIncludingMissingStatements() {
         val warning = "本期金额未知，请核对账单是否已收到"
         val missing = account.copy(id = "missing", bankName = "中信银行")
@@ -895,9 +1086,9 @@ class ReferenceUiTest {
                             transactions = Page(emptyList(), 0, 1, 20, 1, status),
                         )
                 }
-                compose.onNodeWithText(
-                    if (status == "complete") "暂无交易" else "尚无可展示详单"
-                ).assertIsDisplayed()
+                compose
+                    .onNodeWithText(if (status == "complete") "暂无交易" else "尚无可展示详单")
+                    .assertIsDisplayed()
                 compose.onNodeWithTag("transaction-count").assertDoesNotExist()
                 compose.onNodeWithText("共 0 条").assertDoesNotExist()
                 compose.onNode(hasText("未提供或", substring = true)).assertDoesNotExist()

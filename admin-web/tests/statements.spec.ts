@@ -193,7 +193,16 @@ test('statements status tag highlights unpaid bills in red (danger)', async ({ p
     route.fulfill({ json: { items: statements, total: statements.length } }),
   )
   await page.route('**/api/v1/admin/statements/statement-unpaid', (route) =>
-    route.fulfill({ json: { ...statements[0], version: 1, source_kind: 'manual', paid: '0.00', excess: '0.00', repayments: [] } }),
+    route.fulfill({
+      json: {
+        ...statements[0],
+        version: 1,
+        source_kind: 'manual',
+        paid: '0.00',
+        excess: '0.00',
+        repayments: [],
+      },
+    }),
   )
 
   await page.goto('/statements')
@@ -202,7 +211,7 @@ test('statements status tag highlights unpaid bills in red (danger)', async ({ p
   await expect(unpaidTag).toBeVisible()
   await expect(unpaidTag).toHaveClass(/el-tag--danger/)
 
-  const settledTag = page.locator('.el-table .el-tag').filter({ hasText: '已标记结清' })
+  const settledTag = page.locator('.el-table .el-tag').filter({ hasText: '已结清' })
   await expect(settledTag).toBeVisible()
   await expect(settledTag).toHaveClass(/el-tag--success/)
 

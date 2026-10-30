@@ -5,6 +5,28 @@
 - 当前交付：P1 工程基础、认证与人工账单闭环；P2 多邮箱、通用输入准备与持久任务；P3 模型识别、账户匹配、人工核对及版本详单；P4安卓源代码 / 调试APK及移动分页接口。
 - 结论：P1 / P2 / P3 已完成下述范围的本地实现和合成数据验收；P4通过编译、JVM单测和lint，但设备测试未运行；P3真实服务商和银行样本验收仍待完成。整个项目仍在开发中，不是完整应用或生产上线交付。
 
+## 增补验收：计划第 23 节（2026-10-30）
+
+本节仅记录当前迭代，不替代下方 P1–P4 历史记录。功能与两端文案已实现；界面设备验收仍受测试框架兼容性限制。
+
+- 安卓首页读取服务端 `needs_update` / `expected_statement_date`，在旧账单上显示“待更新账单”及“本期应出账：MM-DD”；允许窄屏换行，无日期时仅显示标签。离线不本地推算；旧缓存/历史接口缺少字段时保持兼容。
+- Web / 安卓结清状态统一“已结清”，待更新的旧账单为“旧账单已结清”；两端待更新金额标题统一“旧账单待还”。其他金额文案及描述性免责声明不变。
+- 保留现有排序、到期筛选、还款资格与缓存只读逻辑；后端与数据库零改动，未执行真实金融写入、VPS 部署或版本发布。
+
+| 检查 | 实际结果 |
+| --- | --- |
+| 后端概览更新与账单回归 | `test_overview_updates.py` + `test_billing.py`：**52 passed**；有既有 Starlette/httpx 弃用警告 |
+| Web 类型检查 / 生产构建 | **通过**；保留既有 bundle 体积警告 |
+| Web 全量 E2E | **52 passed / 3 failed**（总计 55 项）；年费卡片按钮定位超时 1 项，概览跳转查询参数断言漏掉现有 `tracked_only` 2 项。未修改这些非本次文案路径的逻辑或放宽断言 |
+| Web 相关 E2E 复跑 | `overview.spec.ts`、`statements.spec.ts`、`statement-filters.spec.ts` 中排除上述 2 项查询参数失败用例后：**18 passed**，包含待更新、金额标题、结清样式和结清筛选 |
+| 安卓 JVM 单测 | **77 passed / 0 failures / 0 errors**，新增 4 项；另加强跨账单日刷新不影响还款的既有测试 |
+| 安卓 lint / APK | lint **0 errors / 1 warning**（既有 KSP 迁移建议）；`assembleDebug`、`assembleDebugAndroidTest` **通过**，使用本机已有 Gradle 8.9 离线执行 |
+| 安卓设备 JSON | 通过 ADB 在已授权设备 PLR110（Android 17 / API 37）执行 `HomeCardJsonTest`：**OK (7 tests)**，新增 3 项覆盖概览字段及缺失/null 兼容 |
+| 安卓 Compose 界面 | 新增 6 项且测试包已编译；实际尝试执行 `ReferenceUiTest` 时，现有 Espresso 3.5.0 抛出 `NoSuchMethodException: android.hardware.input.InputManager.getInstance`，未取得有效 UI 验收结果 |
+| Gradle 设备任务 | 离线缺少 `com.android.tools.utp:android-test-plugin-host-additional-test-output:31.7.3`；已通过 ADB 直接运行测试包绕过此工具阻塞，未绕过断言 |
+
+边界：未运行会访问专用服务并写入还款记录的 `UiFlowTest`。UI 的窄屏/大字体与交互仍需在兼容设备或测试框架完成适配后复验；上述 3 项 Web 全量失败另行处理，本次不扩大到年费/追踪筛选逻辑。按用户后续要求，两端版本配置统一更新为 `0.5.0`，安卓 versionCode 递增至 20（Debug 包 `0.5.0-debug`）；不代表已完成正式签名发布或 VPS 部署。
+
 ## 1. P1 已交付基础
 
 ### 后端与数据

@@ -87,31 +87,9 @@ internal fun LazyListScope.homeContent(
         }
         HorizontalDivider(color = Line)
     }
-    val rows =
-        (if (mode == "history") h.historical else h.latest)
-            .filter {
-                (bank.isEmpty() || it.account.bankName == bank) &&
-                    (holder.isEmpty() || it.account.holderName == holder) &&
-                    (mode != "upcoming" ||
-                        (it.days != null &&
-                            it.days <= 7 &&
-                            it.paymentStatus !in listOf("settled", "overpaid")))
-            }
-            .sortedWith(
-                compareBy<Statement> { it.paymentStatus in listOf("settled", "overpaid") }
-                    .thenBy { it.due ?: "9999" }
-                    .thenByDescending { it.date }
-            )
+    val rows = homeStatementRows(s, bank, holder, mode)
     items(rows, key = { "bill-${it.id}" }) { row -> StatementRow(row, s, actions, recordPayment) }
-    val missing =
-        if (mode == "current")
-            s.accounts?.items.orEmpty().filter { a ->
-                a.active &&
-                    h.latest.none { it.account.id == a.id } &&
-                    (bank.isEmpty() || a.bankName == bank) &&
-                    (holder.isEmpty() || a.holderName == holder)
-            }
-        else emptyList()
+    val missing = missingHomeAccounts(s, bank, holder, mode)
     items(missing, key = { "missing-${it.id}" }) { account ->
         MissingStatementRow(account, s.busy, actions)
     }
@@ -128,6 +106,8 @@ internal fun LazyListScope.homeContent(
                 Text("${h.pending} 份待确认账单，请在现有 Web 管理端核对。", color = Coral, fontSize = 12.sp)
             Text(h.disclaimer, color = Muted, fontSize = 11.sp)
             Text("刷新仅读取服务器已有数据，不触发收信或模型识别。", color = Muted, fontSize = 11.sp)
+            if (s.homeAccountsIncomplete && !s.busy)
+                Text("账户列表尚未完整读取，请下拉重试", color = Coral, fontSize = 12.sp)
             if (s.accounts?.hasNext == true)
                 TextButton(onClick = { actions.tab("details") }, enabled = !s.busy) {
                     Text("在详单中选择更多账户")
@@ -195,6 +175,7 @@ private fun StatementRow(
                 }
             }
         }
+        if (row.needsUpdate) BillUpdateNotice(row)
         Spacer(Modifier.height(6.dp))
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             val largeFont = LocalDensity.current.fontScale > 1.2f
@@ -241,6 +222,40 @@ private fun StatementRow(
     HorizontalDivider(color = Line)
 }
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun BillUpdateNotice(row: Statement) {
+    FlowRow(
+        Modifier.fillMaxWidth().testTag("bill-update-${row.id}"),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(4.dp),
+            color = Coral.copy(alpha = 0.10f),
+            contentColor = Coral,
+            modifier = Modifier.align(Alignment.CenterVertically),
+        ) {
+            Text(
+                "待更新账单",
+                fontSize = 11.sp,
+                modifier =
+                    Modifier.testTag("bill-update-tag-${row.id}")
+                        .padding(horizontal = 6.dp, vertical = 3.dp),
+            )
+        }
+        billUpdateNotice(row)?.let { notice ->
+            Text(
+                notice,
+                color = Muted,
+                fontSize = 11.sp,
+                modifier =
+                    Modifier.align(Alignment.CenterVertically).testTag("bill-update-date-${row.id}"),
+            )
+        }
+    }
+}
+
 @Composable
 private fun StatementBalance(
     row: Statement,
@@ -254,9 +269,10 @@ private fun StatementBalance(
             color = if (row.remaining == null) Muted else Ink,
         )
         Text(
-            "${if(row.remaining==null) "待更新 · " else ""}本期待还 · ${row.currency}",
+            balanceCaption(row),
             color = Muted,
             fontSize = 11.sp,
+            modifier = Modifier.testTag("bill-balance-caption-${row.id}"),
         )
         if (row.paymentStatus == "partial") Text("已标记部分还款", fontSize = 10.sp, color = Blue)
     }
@@ -355,6 +371,7 @@ private fun MissingStatementRow(account: Account, busy: Boolean, actions: UiActi
     Column(
         Modifier.fillMaxWidth()
             .clickable(enabled = !busy) { actions.account(account) }
+            .testTag("missing-${account.id}")
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
         AccountIdentity(account)
@@ -381,8 +398,9 @@ internal fun HomeFilterDialog(
     dismiss: () -> Unit,
 ) {
     val accounts =
-        (s.home?.latest.orEmpty() + s.home?.historical.orEmpty()).map { it.account } +
-            s.accounts?.items.orEmpty()
+        ((s.home?.latest.orEmpty() + s.home?.historical.orEmpty()).map { it.account } +
+                (s.homeAccounts ?: s.accounts?.items.orEmpty()))
+            .filter { isHomeAccountVisible(s, it) }
     AlertDialog(
         onDismissRequest = dismiss,
         title = { Text("筛选账单") },

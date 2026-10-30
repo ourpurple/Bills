@@ -20,6 +20,8 @@ data class UiState(
     val cacheAt: Long? = null,
     val home: Overview? = null,
     val accounts: Page<Account>? = null,
+    val homeAccounts: List<Account>? = null,
+    val homeAccountsIncomplete: Boolean = false,
     val selectedAccount: Account? = null,
     val history: Page<Statement>? = null,
     val statement: Statement? = null,
@@ -138,10 +140,24 @@ class BillsViewModel(application: Application) : AndroidViewModel(application) {
         val home = repo.read("/api/v1/app/overview", Json::overview)
         observed(home, true)
         mutable.update { it.copy(home = home.data) }
-        val accounts =
-            repo.read("/api/v1/app/accounts?page=1&page_size=20") { Json.page(it, Json::account) }
-        observed(accounts)
-        mutable.update { it.copy(accounts = accounts.data) }
+        // Keep the home inventory separate from the paged account picker. Newly added
+        // accounts can be on later pages even when they have no confirmed statement yet.
+        mutable.update { it.copy(homeAccounts = emptyList(), homeAccountsIncomplete = true) }
+        var firstAccounts: Page<Account>? = null
+        readAllHomeAccounts(
+            read = { number ->
+                repo
+                    .read("/api/v1/app/accounts?page=$number&page_size=20") {
+                        Json.page(it, Json::account)
+                    }
+                    .also { loaded -> if (number == 1) firstAccounts = loaded.data }
+            },
+            publish = { loaded ->
+                observed(loaded)
+                mutable.update { it.copy(accounts = firstAccounts, homeAccounts = loaded.data) }
+            },
+        )
+        mutable.update { it.copy(homeAccountsIncomplete = false) }
     }
 
     fun home() = tab("home")

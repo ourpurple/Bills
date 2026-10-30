@@ -11,7 +11,8 @@ internal data class DueLabel(val value: String, val caption: String, val urgent:
 internal fun dueLabel(row: Statement): DueLabel =
     when {
         row.status == "void" -> DueLabel("—", "已作废", false)
-        row.paymentStatus == "settled" -> DueLabel("✓", "已标记还清", false)
+        row.paymentStatus == "settled" ->
+            DueLabel("✓", if (row.needsUpdate) "旧账单已结清" else "已结清", false)
         row.paymentStatus == "overpaid" -> DueLabel("✓", "已标记超额", false)
         row.due == null || row.days == null -> DueLabel("—", "到期日未知", false)
         row.overdue || row.days < 0 ->
@@ -20,6 +21,14 @@ internal fun dueLabel(row: Statement): DueLabel =
         row.days == 1 -> DueLabel("明", "天到期", true)
         else -> DueLabel(row.days.toString(), "天后到期", row.days <= 3)
     }
+
+// Freshness is a server snapshot, never inferred from the device clock or balance.
+internal fun billUpdateNotice(row: Statement): String? =
+    if (row.needsUpdate) row.expectedStatementDate?.let { "本期应出账：${shortDate(it)}" } else null
+
+internal fun balanceCaption(row: Statement): String =
+    "${if (row.remaining == null) "待更新 · " else ""}" +
+        "${if (row.needsUpdate) "旧账单待还" else "本期待还"} · ${row.currency}"
 
 internal fun displayAmount(value: String?, currency: String, hidden: Boolean = false): String {
     if (hidden) return "••••"
@@ -106,7 +115,9 @@ internal fun homePaymentTarget(s: UiState, selected: Statement): Statement? {
     if (s.screen != "home" || s.connection == null || s.cached || s.pending != null) return null
     return (s.home?.latest.orEmpty() + s.home?.historical.orEmpty())
         .singleOrNull { it.id == selected.id }
-        ?.takeIf { it == selected && it.account.active && hasRepayableBalance(it) }
+        ?.takeIf {
+            it == selected && isHomeAccountVisible(s, it.account) && hasRepayableBalance(it)
+        }
 }
 
 internal fun canRecordHomePayment(s: UiState, selected: Statement): Boolean =
@@ -115,7 +126,7 @@ internal fun canRecordHomePayment(s: UiState, selected: Statement): Boolean =
 // Recheck write-sensitive terms against a fresh summary before staging a submission.
 internal fun sameHomePaymentBill(selected: Statement, fresh: Statement): Boolean =
     hasRepayableBalance(fresh) &&
-        fresh.account.active &&
+        hasHomeBillCard(fresh.account) &&
         selected.id == fresh.id &&
         selected.account == fresh.account &&
         selected.version == fresh.version &&

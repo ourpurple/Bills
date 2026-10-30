@@ -415,7 +415,7 @@ onMounted(async () => {
           >
             <el-option label="待还款" value="unpaid" />
             <el-option label="部分还款" value="partial" />
-            <el-option label="已标记结清" value="settled" />
+            <el-option label="已结清" value="settled" />
             <el-option label="已过到期日" value="overdue" />
             <el-option label="超额标记" value="overpaid" />
             <el-option label="待确认" value="draft" />

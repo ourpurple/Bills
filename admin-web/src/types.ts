@@ -138,7 +138,7 @@ export const stateText = (s: Statement) =>
       : s.payment_status === 'overpaid'
         ? '超额标记'
         : s.payment_status === 'settled'
-          ? '已标记结清'
+          ? '已结清'
           : s.overdue
             ? '已过到期日'
             : s.payment_status === 'partial'
@@ -150,7 +150,7 @@ export const stateTagType = (
   if (!s) return 'info'
   const text = stateText(s)
   switch (text) {
-    case '已标记结清':
+    case '已结清':
       return 'success'
     case '待还款':
     case '已过到期日':

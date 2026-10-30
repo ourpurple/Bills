@@ -9,16 +9,19 @@ private fun JSONObject.objects(key: String): List<JSONObject> =
     optJSONArray(key)?.let { a -> (0 until a.length()).map { a.getJSONObject(it) } } ?: emptyList()
 
 object Json {
-    fun account(o: JSONObject) =
-        Account(
+    fun account(o: JSONObject): Account {
+        val cards = o.objects("cards")
+        return Account(
             o.getString("id"),
             o.getString("name"),
             o.getString("bank_name"),
             o.getString("cardholder_name"),
             o.getString("mode"),
             o.getBoolean("effective_active"),
-            o.objects("cards").filter { it.getBoolean("active") }.map { it.getString("last_four") },
+            cards.filter { it.getBoolean("active") }.map { it.getString("last_four") },
+            cards.any { it.getBoolean("active") && it.optBoolean("track_bills", true) },
         )
+    }
 
     fun statement(o: JSONObject) =
         Statement(
@@ -40,6 +43,8 @@ object Json {
             o.text("period_start"),
             o.text("period_end"),
             o.getString("source_kind"),
+            o.optBoolean("needs_update", false),
+            o.text("expected_statement_date"),
         )
 
     fun overview(text: String): Overview {
