@@ -315,7 +315,7 @@ onMounted(async () => {
 })
 </script>
 <template>
-  <div class="page-heading">
+  <div class="page-heading statement-page-heading">
     <div>
       <div class="eyebrow">STATEMENT ARCHIVE</div>
       <h1>每期账单，清楚留档。</h1>
@@ -326,7 +326,7 @@ onMounted(async () => {
       ><el-button type="primary" :icon="Plus" @click="create">录入账单</el-button>
     </div>
   </div>
-  <section class="panel padded">
+  <section class="panel padded statement-panel">
     <div class="statement-filters" aria-label="账单筛选">
       <div class="statement-filter-grid">
         <div class="filter-field filter-search">
@@ -495,6 +495,7 @@ onMounted(async () => {
       </p>
     </div>
     <el-table
+      class="statement-table"
       :data="rows"
       v-loading="loading"
       :empty-text="
@@ -505,24 +506,31 @@ onMounted(async () => {
       ><el-table-column label="卡片 / 尾号 / 银行 / 持卡人" min-width="260"
         ><template #default="{ row }"
           ><AccountIdentity :account="row.account" /></template></el-table-column
-      ><el-table-column prop="statement_date" label="账单日" min-width="110" /><el-table-column
-        label="本期应还"
-        min-width="130"
-        align="right"
+      ><el-table-column
+        prop="statement_date"
+        label="账单日"
+        width="112"
+        align="center"
+        class-name="statement-date"
+      /><el-table-column label="本期应还" width="160" align="right"
         ><template #default="{ row }"
           ><span class="numeric">{{ amountText(row.amount, row.currency) }}</span></template
         ></el-table-column
-      ><el-table-column label="记录待还" min-width="130" align="right"
+      ><el-table-column label="记录待还" width="160" align="right"
         ><template #default="{ row }"
           ><strong class="numeric">{{ amountText(row.remaining, row.currency) }}</strong></template
         ></el-table-column
-      ><el-table-column prop="due_date" label="到期日" min-width="110" /><el-table-column
-        label="状态"
-        min-width="120"
+      ><el-table-column
+        prop="due_date"
+        label="到期日"
+        width="112"
+        align="center"
+        class-name="statement-date"
+      /><el-table-column label="状态" width="104" align="center"
         ><template #default="{ row }"
           ><el-tag :type="stateTagType(row)">{{ stateText(row) }}</el-tag></template
         ></el-table-column
-      ><el-table-column label="操作" width="80" fixed="right"
+      ><el-table-column label="操作" width="88" fixed="right" align="center"
         ><template #default="{ row }"
           ><el-button text type="primary" @click="show(row.id)">详情</el-button></template
         ></el-table-column
@@ -788,6 +796,23 @@ onMounted(async () => {
   font-size: 12px;
   color: var(--muted);
   font-weight: 400;
+}
+
+/* Keep short financial fields compact instead of spreading spare width across every column. */
+.statement-page-heading,
+.statement-panel {
+  max-width: 1120px;
+}
+.statement-table :deep(.statement-date .cell) {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.statement-table :deep(.numeric) {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.statement-table :deep(.el-table__cell .cell) {
+  padding-inline: 12px;
 }
 
 .statement-filters {

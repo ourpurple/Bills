@@ -296,3 +296,130 @@ test('statement archive defaults to transaction details on every open', async ({
   await expect(transactionsTab).toHaveAttribute('aria-selected', 'true')
   await expect(drawer.getByRole('cell', { name: '默认显示的测试交易' })).toBeVisible()
 })
+
+for (const width of [1920, 1440, 1024, 768, 390, 320]) {
+  test(`statement columns stay compact without clipping (${width}px)`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width, height: 1000 })
+    const account = {
+      id: 'spacing-account',
+      bank_id: 'cmb',
+      bank_code: 'cmb',
+      bank_name: '招商银行',
+      cardholder_id: 'holder',
+      cardholder_name: '示例持卡人',
+      mode: 'merged',
+      cards: [
+        { id: 'card-1', name: '经典白金卡', last_four: '9999', active: true },
+        {
+          id: 'card-2',
+          name: '用于验证长名称与完整尾号展示的家庭附属信用卡',
+          last_four: '8727',
+          active: true,
+        },
+      ],
+    }
+    const statements = [
+      {
+        currency: 'CNY',
+        amount: '5.14',
+        remaining: '5.14',
+        payment_status: 'unpaid',
+        overdue: false,
+      },
+      {
+        currency: 'CNY',
+        amount: '3393.15',
+        remaining: '3393.15',
+        payment_status: 'partial',
+        overdue: false,
+      },
+      {
+        currency: 'USD',
+        amount: '12345678.90',
+        remaining: '12345678.90',
+        payment_status: 'unpaid',
+        overdue: true,
+      },
+      {
+        currency: 'USD',
+        amount: '9999999999.99',
+        remaining: '0.00',
+        payment_status: 'settled',
+        overdue: false,
+      },
+    ].map((statement, index) => ({
+      ...statement,
+      id: `spacing-${index}`,
+      account,
+      status: 'confirmed',
+      statement_date: '2026-10-28',
+      due_date: '2026-11-21',
+    }))
+    await page.route('**/api/v1/auth/me', (route) =>
+      route.fulfill({ json: { username: 'test-admin', csrf_token: 'test-csrf' } }),
+    )
+    await page.route('**/api/v1/admin/accounts?*', (route) =>
+      route.fulfill({ json: { items: [account], total: 1 } }),
+    )
+    await page.route('**/api/v1/admin/statements?*', (route) =>
+      route.fulfill({ json: { items: statements, total: statements.length } }),
+    )
+    await page.goto('/statements')
+    const table = page.locator('.statement-table')
+    await expect(table.locator('.el-table__body .el-table__row')).toHaveCount(4)
+    const expectedWidths = [112, 160, 160, 112, 104, 88]
+    const headers = table.locator('thead th.el-table__cell')
+    for (const [index, expectedWidth] of expectedWidths.entries()) {
+      await expect
+        .poll(async () => (await headers.nth(index + 1).boundingBox())!.width)
+        .toBe(expectedWidth)
+    }
+    const panel = (await page.locator('.statement-panel').boundingBox())!
+    expect(panel.width).toBeLessThanOrEqual(1120)
+    if (width >= 1440) {
+      const identityWidth = (await headers.first().boundingBox())!.width
+      expect(identityWidth).toBeGreaterThanOrEqual(260)
+      expect(identityWidth).toBeLessThanOrEqual(340)
+      const heading = (await page.locator('.statement-page-heading').boundingBox())!
+      expect(heading.x + heading.width).toBe(panel.x + panel.width)
+    }
+    for (const numeric of await table.locator('.el-table__body .numeric').all()) {
+      expect(
+        await numeric.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+      ).toBe(true)
+      await expect(numeric).toHaveCSS('text-align', 'right')
+    }
+    for (const date of await table.locator('.el-table__body .statement-date .cell').all()) {
+      expect(await date.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(
+        true,
+      )
+      await expect(date).toHaveCSS('white-space', 'nowrap')
+    }
+    await expect(table.locator('.statement-card-tail')).toHaveCount(8)
+    await expect(table.locator('.el-table__body .el-tag')).toHaveText([
+      '待还款',
+      '部分还款',
+      '已过到期日',
+      '已结清',
+    ])
+    const scroll = table.locator('.el-table__body-wrapper .el-scrollbar__wrap')
+    await scroll.evaluate((element) => {
+      element.scrollLeft = element.scrollWidth
+    })
+    const details = table.getByRole('button', { name: '详情', exact: true }).first()
+    await expect(details).toBeInViewport()
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
+      .toBe(true)
+    await scroll.evaluate((element) => {
+      element.scrollLeft = 0
+    })
+    await page.screenshot({
+      path: testInfo.outputPath(`statement-columns-${width}.png`),
+      fullPage: true,
+      animations: 'disabled',
+    })
+  })
+}
