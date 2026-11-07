@@ -102,7 +102,7 @@ for (const { view, width } of ['statements', 'overview'].flatMap((view) =>
       if (view === 'overview') {
         const row = page.locator('.bill-row').nth(index)
         await expect(row.locator('.bill-identity small')).toHaveText(
-          `${account.mode === 'merged' ? '多卡合并还款' : '独立还款'} · 2026-10-06`,
+          `${account.mode === 'merged' ? '多卡合并还款' : '独立还款'} · 账单日：2026-10-06`,
         )
         const rowBounds = (await row.boundingBox())!
         const identityBounds = (await identity.boundingBox())!

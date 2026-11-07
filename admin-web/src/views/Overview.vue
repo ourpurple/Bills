@@ -103,8 +103,9 @@ onMounted(load)
         <div class="bill-identity">
           <AccountIdentity :account="s.account" />
           <small
-            >{{ s.account.mode === 'merged' ? '多卡合并还款' : '独立还款' }} ·
-            {{ s.statement_date }}</small
+            >{{ s.account.mode === 'merged' ? '多卡合并还款' : '独立还款' }} · 账单日：{{
+              s.statement_date
+            }}</small
           >
           <div v-if="s.needs_update" class="bill-update-notice">
             <el-tag type="warning">待更新账单</el-tag>
