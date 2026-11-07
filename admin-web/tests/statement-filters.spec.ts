@@ -217,6 +217,7 @@ for (const width of [1440, 390]) {
       }),
     )
     for (const account of accounts) {
+      if (width < 1024) await page.getByRole('button', { name: '打开主导航' }).click()
       await page.getByRole('link', { name: '账单概览', exact: true }).click()
       const request = page.waitForRequest((request) => {
         const url = new URL(request.url())
@@ -231,7 +232,8 @@ for (const width of [1440, 390]) {
         .getByRole('button', { name: '查看', exact: true })
         .click()
       const params = new URL((await request).url()).searchParams
-      expect([...params.keys()].sort()).toEqual(['account_id', 'page', 'page_size'])
+      expect([...params.keys()].sort()).toEqual(['account_id', 'page', 'page_size', 'tracked_only'])
+      expect(params.get('tracked_only')).toBe('true')
       expect(params.get('page')).toBe('1')
       await expect(page).toHaveURL(`/statements?account_id=${account.id}`)
       await expect(page.locator('.filter-card')).toContainText(account.cards[0].last_four)
@@ -243,13 +245,14 @@ for (const width of [1440, 390]) {
       await expect(page.locator('.statement-account')).toHaveText(
         expected.map(() => `${account.bank_name} · ${account.cardholder_name}`),
       )
-      await expect(page.locator('.el-drawer')).not.toBeVisible()
+      await expect(page.getByRole('dialog', { name: '账单档案' })).not.toBeVisible()
       await page.reload()
       await expect(page.locator('.statement-filter-footer')).toContainText(
         `${expected.length} 份账单`,
       )
       await expect(page.locator('.filter-card')).toContainText(account.cards[0].last_four)
     }
+    if (width < 1024) await page.getByRole('button', { name: '打开主导航' }).click()
     await page.getByRole('link', { name: '账单管理', exact: true }).click()
     await expect(page.locator('.statement-filter-footer')).toContainText('24 份账单')
     await expect(page.locator('.filter-card')).toContainText('全部卡片')

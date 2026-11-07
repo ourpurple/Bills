@@ -168,7 +168,10 @@ test('system task queue: global navigation, mixed tasks, pagination, details, re
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(
     false,
   )
+  await page.getByRole('button', { name: '打开主导航' }).click()
   await expect(page.getByRole('link', { name: '任务队列' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog', { name: '我的账单工作台' })).not.toBeVisible()
   const clearButton = page.getByRole('button', { name: '清除任务日志', exact: true })
   await expect(clearButton).toBeVisible()
   await page.locator('.el-table .el-scrollbar__wrap').evaluate((element) => {

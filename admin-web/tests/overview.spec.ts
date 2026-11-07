@@ -169,7 +169,7 @@ for (const width of [1440, 768, 390, 320]) {
       await expect(tag).toHaveCSS('color', 'rgb(103, 194, 58)')
       await expect(tag).toHaveCSS('background-color', 'rgb(240, 249, 235)')
       await page.keyboard.press('Escape')
-      await expect(page.locator('.el-drawer')).not.toBeVisible()
+      await expect(page.getByRole('dialog', { name: '账单档案' })).not.toBeVisible()
     }
   })
 }

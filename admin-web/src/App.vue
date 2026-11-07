@@ -1,36 +1,33 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import {
-  DataBoard,
-  CreditCard,
-  Calendar,
-  Document,
-  Setting,
-  Message,
-  MagicStick,
-  List,
-  ArrowRight,
-  SwitchButton,
-} from '@element-plus/icons-vue'
+import { Menu, Lock } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { logout, username } from './api'
+import { logout } from './api'
+import WorkspaceSidebar from './components/WorkspaceSidebar.vue'
+import { version } from '../package.json'
 const route = useRoute(),
   router = useRouter()
-const navigation = [
-  { path: '/', label: '账单概览', icon: DataBoard },
-  { path: '/statements', label: '账单管理', icon: Document },
-  { path: '/annual-fees', label: '年费管理', icon: Calendar },
-  { path: '/imports', label: '邮件中心', icon: Message },
-  { path: '/models', label: '模型与核对', icon: MagicStick },
-  { path: '/tasks', label: '任务队列', icon: List },
-  { path: '/accounts', label: '账户与卡片', icon: CreditCard },
-  { path: '/settings', label: '安全与设置', icon: Setting },
-]
 const heading = computed(() => route.meta.title)
+const breakpoint = window.matchMedia('(max-width: 1023px)')
+const mobile = ref(breakpoint.matches),
+  menuOpen = ref(false)
+const updateBreakpoint = () => {
+  mobile.value = breakpoint.matches
+  menuOpen.value = false
+}
+onMounted(() => breakpoint.addEventListener('change', updateBreakpoint))
+onUnmounted(() => breakpoint.removeEventListener('change', updateBreakpoint))
+watch(
+  () => route.fullPath,
+  () => {
+    menuOpen.value = false
+  },
+)
 async function signOut() {
   try {
     await logout()
+    menuOpen.value = false
     await router.replace('/login')
   } catch (e) {
     ElMessage.error((e as Error).message)
@@ -40,48 +37,45 @@ async function signOut() {
 <template>
   <router-view v-if="route.path === '/login'" />
   <div v-else class="workspace">
-    <aside class="sidebar">
-      <router-link to="/" class="brand"
-        ><span class="brand-symbol">序</span>
-        <div><strong>账序</strong><small>BILLS · PERSONAL</small></div></router-link
-      >
-      <div class="nav-caption">我的账单工作台</div>
-      <nav aria-label="主导航">
-        <router-link
-          v-for="item in navigation"
-          :key="item.path"
-          :to="item.path"
-          :aria-label="item.label"
-          :title="item.label"
-          class="nav-item"
-          :class="{ active: route.path === item.path }"
-          ><el-icon><component :is="item.icon" /></el-icon><span>{{ item.label }}</span
-          ><el-icon v-if="route.path === item.path" class="nav-arrow"><ArrowRight /></el-icon
-        ></router-link>
-      </nav>
-      <div class="sidebar-note">
-        <span class="status-dot" />个人专属 · 单机管理
-        <p>整理账单，让每一次还款<br />都有清晰的记录。</p>
-      </div>
-      <div class="sidebar-user">
-        <span class="avatar">{{ username.slice(0, 1).toUpperCase() }}</span>
-        <div>
-          <strong>{{ username }}</strong
-          ><small>管理员</small>
-        </div>
-        <el-button text circle aria-label="退出登录" @click="signOut"
-          ><el-icon><SwitchButton /></el-icon
-        ></el-button>
-      </div>
+    <a class="skip-link" href="#main-content">跳至页面内容</a>
+    <aside v-if="!mobile" class="sidebar">
+      <WorkspaceSidebar @sign-out="signOut" />
     </aside>
+    <el-drawer
+      v-if="mobile"
+      v-model="menuOpen"
+      direction="ltr"
+      size="min(304px, 88vw)"
+      class="navigation-drawer"
+      title="我的账单工作台"
+      :z-index="2100"
+    >
+      <WorkspaceSidebar @navigate="menuOpen = false" @sign-out="signOut" />
+    </el-drawer>
     <section class="main-shell">
       <header class="topbar">
-        <span>个人财务 <span class="crumb">/</span> {{ heading }}</span
-        ><span class="privacy-badge"><span class="status-dot" />仅记录，不执行支付</span>
+        <div class="topbar-path">
+          <el-button
+            v-if="mobile"
+            class="menu-trigger"
+            :icon="Menu"
+            aria-label="打开主导航"
+            :aria-expanded="menuOpen"
+            @click="menuOpen = true"
+            >菜单</el-button
+          >
+          <span class="breadcrumb"
+            ><span class="crumb-root">个人财务 <span class="crumb">/</span></span
+            >{{ heading }}</span
+          >
+        </div>
+        <span class="privacy-badge"
+          ><el-icon aria-hidden="true"><Lock /></el-icon>仅记录，不执行支付</span
+        >
       </header>
-      <main class="page-content"><router-view /></main>
+      <main id="main-content" class="page-content" tabindex="-1"><router-view /></main>
       <footer class="page-footer">
-        <span>账序 · 私人账单档案</span><span>v0.3.0 · 模型识别与核对阶段</span>
+        <span>账序 · 私人账单档案</span><span>v{{ version }} · 记录有据，核对有序</span>
       </footer>
     </section>
   </div>

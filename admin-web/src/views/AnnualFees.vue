@@ -383,64 +383,64 @@ onUnmounted(() => clearInterval(clock))
 
 <style scoped>
 .fee-load-error {
-  margin-bottom: 20px;
+  margin-bottom: var(--space-5);
 }
 .fee-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
-  margin-bottom: 24px;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
 }
 .fee-stat {
-  padding: 20px 22px;
+  padding: var(--space-5) var(--space-6);
 }
 .fee-stat > span {
   font-size: 13px;
-  color: #637367;
+  color: var(--muted);
 }
 .fee-stat > strong {
   display: block;
-  margin: 12px 0 8px;
-  font:
-    32px/1.2 Georgia,
-    'Songti SC',
-    serif;
-  color: #245745;
+  margin: var(--space-3) 0 var(--space-2);
+  font: 32px/1.2 var(--font-number);
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
 }
 .fee-stat small {
-  margin-left: 8px;
-  font:
-    12px 'Microsoft YaHei',
-    sans-serif;
-  color: #737e74;
+  margin-left: var(--space-2);
+  font: 12px var(--font-body);
+  color: var(--muted);
 }
 .fee-stat p {
+  margin: 0;
+  color: var(--muted);
   font-size: 12px;
+  line-height: 1.6;
 }
 .fee-stat-soon {
-  background: #f7f2e5;
-  border-color: #e5d8b9;
+  background: var(--warning-bg);
+  border-color: var(--brass);
 }
 .fee-stat-soon > strong {
-  color: #92652b;
+  color: var(--warning-ink);
 }
 .fee-panel {
-  padding: 24px;
+  padding: var(--space-6);
   container-type: inline-size;
 }
 .fee-filters {
   display: grid;
   grid-template-columns: minmax(220px, 1.6fr) repeat(4, minmax(120px, 1fr));
-  gap: 14px;
+  gap: var(--space-4);
 }
 .fee-filters > div {
   min-width: 0;
 }
 .fee-filters label {
   display: block;
-  color: #637367;
+  color: var(--muted);
   font-size: 12px;
-  margin-bottom: 8px;
+  font-weight: 500;
+  margin-bottom: var(--space-2);
 }
 .fee-filters .el-select {
   width: 100%;
@@ -449,12 +449,16 @@ onUnmounted(() => clearInterval(clock))
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin: 18px 0 12px;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin: var(--space-4) 0 var(--space-3);
   font-size: 12px;
-  color: #737e74;
+  color: var(--muted);
 }
 .fee-list-toolbar strong {
-  color: #245745;
+  color: var(--accent);
+  font-family: var(--font-number);
+  font-variant-numeric: tabular-nums;
 }
 .fee-list-heading,
 .fee-row {
@@ -462,31 +466,33 @@ onUnmounted(() => clearInterval(clock))
   grid-template-columns:
     minmax(150px, 1.3fr) minmax(105px, 0.8fr) minmax(120px, 0.9fr) minmax(150px, 1.5fr)
     56px;
-  gap: 20px;
+  gap: var(--space-5);
   align-items: center;
 }
 .fee-list-heading {
-  padding: 12px 16px;
-  background: #f2f4e9;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: var(--surface-soft);
   font-size: 12px;
-  color: #6b7868;
+  font-weight: 500;
+  color: var(--muted);
 }
 .fee-row {
-  padding: 20px 16px;
-  border-bottom: 1px solid #e4e8dd;
+  padding: var(--space-5) var(--space-4);
+  border-bottom: 1px solid var(--line);
 }
 .fee-row > div {
   min-width: 0;
 }
 .fee-row-soon {
-  background: #fdfbf5;
-  box-shadow: inset 3px 0 #c29b52;
+  background: var(--warning-bg);
+  box-shadow: inset 3px 0 var(--brass);
 }
 .fee-card-title {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
   line-height: 1.7;
 }
 .fee-card-title strong {
@@ -495,40 +501,51 @@ onUnmounted(() => clearInterval(clock))
 }
 .fee-identity p {
   font-size: 12px;
-  margin-top: 6px;
+  margin: var(--space-1) 0 0;
+  color: var(--muted);
   overflow-wrap: anywhere;
 }
 .is-inactive {
   color: #c45656;
 }
 .fee-row-inactive {
-  background: #f8f8f4;
+  background: var(--surface-soft);
 }
 .fee-recurring {
+  color: var(--ink);
   font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 .fee-next {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 6px;
+  gap: var(--space-2);
   font-size: 12px;
 }
 .fee-next strong {
+  color: var(--accent);
+  font-family: var(--font-number);
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.fee-row-soon .fee-next strong {
+  color: var(--warning-ink);
 }
 .fee-benefits p {
+  margin: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  color: #394d40;
+  color: var(--ink);
   font-size: 13px;
   line-height: 1.8;
 }
 .fee-benefits .fee-muted,
 .fee-muted {
-  color: #7b847b;
+  color: var(--subtle);
   font-size: 12px;
 }
 .fee-actions {
@@ -539,39 +556,45 @@ onUnmounted(() => clearInterval(clock))
 }
 .fee-footnote {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: flex-start;
-  padding-top: 18px;
-  color: #8b7958;
+  padding-top: var(--space-4);
+  color: var(--warning-ink);
 }
 .fee-footnote .el-icon {
   flex-shrink: 0;
   margin-top: 3px;
 }
 .fee-footnote p {
+  margin: 0;
   font-size: 12px;
+  line-height: 1.7;
 }
 .fee-editor-identity {
-  background: #f2f6ef;
-  border-left: 3px solid #245745;
-  padding: 14px 16px;
-  border-radius: 8px;
-  margin-bottom: 22px;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--brass);
+  padding: var(--space-4);
+  border-radius: var(--radius);
+  margin-bottom: var(--space-5);
   overflow-wrap: anywhere;
 }
 .fee-editor-identity p {
+  color: var(--muted);
   font-size: 12px;
-  margin-top: 4px;
+  margin: var(--space-1) 0 0;
 }
 .fee-date-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: var(--space-3);
   width: 100%;
 }
 .fee-edit-hint {
+  color: var(--muted);
   font-size: 12px;
-  margin-top: 8px;
+  margin: var(--space-2) 0 0;
+  line-height: 1.6;
 }
 :global(.annual-fee-dialog) {
   max-height: 90dvh;
@@ -597,8 +620,8 @@ onUnmounted(() => clearInterval(clock))
   }
   .fee-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 16px;
-    padding: 20px 0;
+    gap: var(--space-4);
+    padding: var(--space-5) var(--space-2);
   }
   .fee-identity,
   .fee-benefits {
@@ -609,9 +632,9 @@ onUnmounted(() => clearInterval(clock))
   }
   .fee-mobile-label {
     display: block;
-    color: #7b847b;
+    color: var(--muted);
     font-size: 12px;
-    margin-bottom: 6px;
+    margin-bottom: var(--space-2);
   }
   .fee-actions {
     grid-column: 1 / -1;
@@ -631,16 +654,16 @@ onUnmounted(() => clearInterval(clock))
     font-size: 25px;
   }
   .fee-summary {
-    gap: 10px;
+    gap: var(--space-3);
   }
   .fee-stat {
-    padding: 14px;
+    padding: var(--space-4);
   }
   .fee-stat > strong {
     font-size: 28px;
   }
   .fee-panel {
-    padding: 16px;
+    padding: var(--space-4);
   }
 }
 </style>

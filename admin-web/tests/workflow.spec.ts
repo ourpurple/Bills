@@ -154,6 +154,7 @@ test('authentication recovery and narrow screen layout', async ({ page }) => {
   await page.goto('/settings')
   await expect(page).toHaveURL(/login/)
   await login(page)
+  await page.getByRole('button', { name: '打开主导航' }).click()
   await page.getByRole('link', { name: '安全与设置' }).click()
   await expect(page.getByRole('heading', { name: '你的数据，你来掌握。' })).toBeVisible()
   await page.getByRole('button', { name: '生成配对码' }).click()

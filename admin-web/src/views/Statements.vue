@@ -655,10 +655,12 @@ onMounted(async () => {
                     ? '入账 / 退款'
                     : '未知'
               }}</template></el-table-column
-            ><el-table-column label="金额" min-width="135"
-              ><template #default="{ row }">{{
-                amountText(row.amount, row.currency || 'CNY')
-              }}</template></el-table-column
+            ><el-table-column label="金额" min-width="135" align="right"
+              ><template #default="{ row }"
+                ><span class="numeric">{{
+                  amountText(row.amount, row.currency || 'CNY')
+                }}</span></template
+              ></el-table-column
             ></el-table
           ><el-collapse class="section-gap"
             ><el-collapse-item
@@ -782,30 +784,32 @@ onMounted(async () => {
 }
 :global(.statement-card-option-meta) {
   display: block;
-  margin-top: 3px;
+  margin-top: var(--space-1);
   font-size: 12px;
-  color: #7b857d;
+  color: var(--muted);
   font-weight: 400;
 }
 
 .statement-filters {
-  padding: 20px 0 14px;
+  padding: var(--space-5) 0 var(--space-4);
+  margin-bottom: var(--space-4);
+  border-bottom: 1px solid var(--line);
 }
 .statement-filter-grid {
   display: grid;
   grid-template-columns:
     minmax(230px, 1.4fr) minmax(125px, 0.8fr) minmax(125px, 0.8fr) minmax(210px, 1.3fr)
     minmax(150px, 0.9fr);
-  gap: 14px;
+  gap: var(--space-4);
 }
 .filter-field {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
   min-width: 0;
 }
 .filter-field > span {
-  color: #7b857d;
+  color: var(--muted);
   font-size: 12px;
   font-weight: 500;
 }
@@ -815,10 +819,10 @@ onMounted(async () => {
 .statement-advanced-filters {
   display: flex;
   flex-wrap: wrap;
-  gap: 14px;
-  margin-top: 18px;
-  padding-top: 16px;
-  border-top: 1px dashed var(--el-border-color);
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px dashed var(--line);
 }
 .filter-currency {
   width: 180px;
@@ -829,7 +833,7 @@ onMounted(async () => {
 }
 .filter-date-controls {
   display: flex;
-  gap: 10px;
+  gap: var(--space-3);
   min-width: 0;
 }
 .filter-date-controls > .el-select {
@@ -844,12 +848,12 @@ onMounted(async () => {
 .statement-filter-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   flex-wrap: wrap;
 }
 .statement-filter-footer {
   justify-content: space-between;
-  margin-top: 14px;
+  margin-top: var(--space-4);
 }
 .statement-filter-actions .el-button {
   margin-left: 0;
@@ -857,11 +861,78 @@ onMounted(async () => {
 }
 .filter-count,
 .filter-note {
-  color: #7b857d;
+  color: var(--muted);
   font-size: 12px;
 }
 .filter-note {
-  margin: 8px 0 0;
+  margin: var(--space-2) 0 0;
+  line-height: 1.6;
+}
+.statement-filter-footer strong {
+  color: var(--accent);
+  font-family: var(--font-number);
+  font-variant-numeric: tabular-nums;
+}
+.numeric {
+  font-family: var(--font-number);
+  font-variant-numeric: tabular-nums;
+}
+.detail-heading {
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-5);
+}
+.detail-heading > div:not(.bank-badge) {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+.detail-heading h2 {
+  font-family: var(--font-heading);
+  overflow-wrap: anywhere;
+}
+.detail-heading p {
+  color: var(--muted);
+}
+.detail-summary {
+  padding: var(--space-5);
+  margin: var(--space-5) 0;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--brass);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+}
+.detail-summary > span,
+.detail-summary > div {
+  color: var(--muted);
+}
+.detail-summary > strong {
+  margin: var(--space-3) 0 var(--space-5);
+  color: var(--accent);
+  font-family: var(--font-number);
+  font-size: clamp(24px, 5vw, 34px);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.detail-summary > div {
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+}
+.record-row {
+  padding: var(--space-4) 0;
+  border-color: var(--line);
+}
+.record-row > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.record-row strong {
+  font-family: var(--font-number), var(--font-body);
+  font-variant-numeric: tabular-nums;
+}
+.record-row small {
+  margin-top: var(--space-2);
+  color: var(--muted);
+  font-size: 12px;
 }
 @media (max-width: 1200px) {
   .statement-filter-grid {
@@ -874,7 +945,7 @@ onMounted(async () => {
 @media (max-width: 640px) {
   .statement-filter-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 14px 10px;
+    gap: var(--space-4) var(--space-3);
   }
   .filter-search {
     grid-column: 1 / -1;

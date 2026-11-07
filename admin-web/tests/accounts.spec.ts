@@ -1040,6 +1040,8 @@ test('bill tracking persists independently of validity and gates billing', async
     .getByRole('dialog', { name: '卡片详情', exact: true })
     .getByRole('button', { name: '关闭', exact: true })
     .click()
+  if (page.viewportSize()!.width < 1024)
+    await page.getByRole('button', { name: '打开主导航' }).click()
   await page.getByRole('link', { name: '账单管理', exact: true }).click()
   const historicalRow = page.locator('.el-table__row').filter({ hasText: '不追踪的新卡' })
   await expect(historicalRow).toHaveCount(0)

@@ -301,6 +301,7 @@ test('annual fee edits persist, synchronize with card details, cancel safely and
     credit_limit: '80000.50',
   })
   await page.getByRole('link', { name: '账户与卡片', exact: true }).click()
+  await page.getByRole('tab', { name: '账户管理', exact: true }).click()
   await page.getByRole('button', { name: '年费测试环球通 · 3536', exact: true }).click()
   const details = page.getByRole('dialog', { name: '卡片详情', exact: true })
   await expect(details).toContainText('每年 2 月 29 日')

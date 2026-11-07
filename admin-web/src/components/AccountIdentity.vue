@@ -14,10 +14,11 @@ defineProps<{ account: Account }>()
 </template>
 <style scoped>
 .statement-identity {
-  padding: 2px 0;
+  min-width: 0;
+  padding: var(--space-1) 0;
 }
 .statement-account {
-  margin-top: 4px;
+  margin-top: var(--space-1);
   color: #7b857d;
   font-size: 12px;
   font-weight: 400;
@@ -28,21 +29,28 @@ defineProps<{ account: Account }>()
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 0 6px;
-  color: var(--el-text-color-primary);
+  gap: 0 var(--space-2);
+  color: #253932; /* Archive identity contrast is part of the existing UI contract. */
   font-size: 14px;
   font-weight: 600;
   line-height: 1.5;
 }
 .statement-card + .statement-card {
-  margin-top: 3px;
+  margin-top: var(--space-1);
 }
 .statement-card-name {
   min-width: 0;
   overflow-wrap: anywhere;
 }
 .statement-card-tail {
+  color: var(--muted);
+  font-family: var(--font-number);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+.table-sub {
+  color: var(--subtle);
+  font-size: 12px;
+  line-height: 1.5;
 }
 </style>

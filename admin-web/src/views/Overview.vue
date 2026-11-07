@@ -8,6 +8,7 @@ import { api } from '../api'
 import { amountText, stateText, type Overview, type Statement } from '../types'
 const data = ref<Overview | null>(null),
   loading = ref(false),
+  loadError = ref(''),
   router = useRouter()
 const cny = computed(() => data.value?.totals.find((t) => t.currency === 'CNY')?.amount ?? '0.00')
 const due = (n: number | null) =>
@@ -17,10 +18,12 @@ const isUrgent = (s: Statement) =>
   (s.overdue || (s.days_until_due !== null && s.days_until_due >= 0 && s.days_until_due <= 7))
 async function load() {
   loading.value = true
+  loadError.value = ''
   try {
     data.value = await api<Overview>('/admin/overview')
   } catch (e) {
-    ElMessage.error((e as Error).message)
+    loadError.value = (e as Error).message
+    ElMessage.error(loadError.value)
   } finally {
     loading.value = false
   }
@@ -42,7 +45,7 @@ onMounted(load)
     </div>
   </div>
   <div v-if="data" v-loading="loading">
-    <section class="summary-grid">
+    <section class="summary-grid" aria-label="账单概况" :aria-busy="loading">
       <div class="total-panel">
         <div class="total-label">当前账单记录待还 <span>CNY</span></div>
         <div class="total-number"><small>¥</small>{{ amountText(cny).replace('¥ ', '') }}</div>
@@ -56,19 +59,21 @@ onMounted(load)
         </div>
       </div>
       <div class="stat-panel">
-        <span class="stat-label">未来 7 天到期</span
+        <span class="stat-label"
+          ><span class="stat-index" aria-hidden="true">01 / PRIORITY</span>未来 7 天到期</span
         ><strong>{{ data.due_soon_count }}<small>笔</small></strong
         ><span class="stat-foot">优先安排近期还款</span>
       </div>
       <div class="stat-panel">
-        <span class="stat-label">待核对账单</span
+        <span class="stat-label"
+          ><span class="stat-index" aria-hidden="true">02 / REVIEW</span>待核对账单</span
         ><strong>{{ data.pending_count }}<small>笔</small></strong
         ><router-link to="/statements?status=draft" class="stat-foot link"
           >前往确认 <el-icon><ArrowRight /></el-icon
         ></router-link>
       </div>
     </section>
-    <div v-if="data.warnings.length" class="warning-strip">
+    <div v-if="data.warnings.length" class="warning-strip" role="note" aria-label="账单风险提示">
       <span class="warning-mark">!</span>
       <div>
         <strong>{{ data.warnings.length }} 项账单状态需要留意</strong>
@@ -91,6 +96,9 @@ onMounted(load)
       ></router-link>
     </div>
     <section class="panel">
+      <div v-if="data.latest_statements.length" class="bill-list-heading" aria-hidden="true">
+        <span>账户与本期账单</span><span>到期时间 / 记录待还</span>
+      </div>
       <el-empty
         v-if="!data.latest_statements.length"
         description="还没有已确认账单。先添加账户，再录入第一份账单。"
@@ -150,5 +158,15 @@ onMounted(load)
     </div>
     <p class="fine-print">{{ data.disclaimer }} 金额来自人工确认或用户记录，不代表银行到账状态。</p>
   </div>
+  <el-alert
+    v-else-if="loadError"
+    title="账单概况暂时无法加载"
+    type="error"
+    show-icon
+    :closable="false"
+  >
+    <p>{{ loadError }}</p>
+    <el-button :loading="loading" @click="load">重新加载</el-button>
+  </el-alert>
   <el-skeleton v-else :rows="8" :loading="loading" animated />
 </template>

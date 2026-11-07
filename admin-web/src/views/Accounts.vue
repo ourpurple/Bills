@@ -1145,23 +1145,27 @@ onMounted(load)
   overflow-y: auto;
 }
 :global(.card-editor-dialog.is-card-editor) {
-  padding: 20px;
-  border: 1px solid #e4e9df;
-  border-radius: 14px;
+  padding: var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
 }
 :global(.is-card-editor .el-dialog__header) {
-  padding-bottom: 12px;
+  padding-bottom: var(--space-3);
 }
 :global(.is-card-editor .el-dialog__title) {
+  font-family: var(--font-heading);
   font-size: 19px;
 }
 :global(.is-card-editor .el-dialog__body) {
   scrollbar-gutter: stable;
 }
 :global(.is-card-editor .el-dialog__footer) {
-  padding-top: 12px;
-  margin-top: 4px;
-  border-top: 1px solid #edf0e9;
+  padding-top: var(--space-3);
+  margin-top: var(--space-1);
+  border-top: 1px solid var(--line);
+}
+.card-editor-form {
+  --el-component-size: 32px;
 }
 .card-editor-form :deep(.el-form-item) {
   min-width: 0;
@@ -1169,8 +1173,8 @@ onMounted(load)
 }
 .card-editor-form :deep(.el-form-item__label) {
   height: auto;
-  margin-bottom: 4px;
-  color: #737e74;
+  margin-bottom: var(--space-1);
+  color: var(--muted);
   font-size: 12px;
   line-height: 18px;
 }
@@ -1185,14 +1189,14 @@ onMounted(load)
   min-width: 0;
 }
 .card-editor-name {
-  padding: 9px 12px 10px;
-  border: 1px solid #e2e9df;
-  border-left: 3px solid var(--el-color-primary);
-  border-radius: 8px;
-  background: #f2f6ef;
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
 }
 .card-editor-name :deep(.el-input__inner) {
-  color: var(--el-color-primary);
+  color: var(--accent);
   font-weight: 600;
 }
 .card-identity-fields,
@@ -1201,27 +1205,27 @@ onMounted(load)
 .card-status-options {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0 16px;
+  gap: 0 var(--space-4);
 }
 .card-editor-private {
-  margin-bottom: 12px;
-  padding: 10px 12px;
-  border: 1px solid #e2e9df;
-  border-radius: 10px;
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
   background: #f2f6ef;
 }
 .card-private-hint {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px 10px;
-  padding-top: 8px;
-  border-top: 1px solid #dfe7dc;
+  gap: var(--space-2) var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--line);
 }
 .card-private-hint p {
   flex: 1 1 260px;
   margin: 0;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
@@ -1232,19 +1236,19 @@ onMounted(load)
   height: 18px;
   margin: 0;
   padding: 0;
-  font-size: 11px;
+  font-size: 12px;
 }
 .card-editor-form .card-editor-benefits {
-  padding: 9px 12px 10px;
-  border: 1px solid #e9e7dd;
-  border-radius: 9px;
-  background: #faf9f5;
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--paper);
 }
 .card-status-options {
   padding: 7px 12px;
-  border: 1px solid #e2e9df;
-  border-radius: 8px;
-  background: #f7f9f4;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
 }
 .card-status-options :deep(.el-form-item) {
   margin-bottom: 0;
@@ -1257,14 +1261,14 @@ onMounted(load)
 }
 .card-editor-form .card-tracking-hint {
   margin: 6px 0 0;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.6;
 }
 .card-editor-footer {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .card-editor-footer .el-button {
   margin: 0;
@@ -1292,6 +1296,7 @@ onMounted(load)
   }
 }
 .card-detail-list .private-value {
+  font-family: var(--font-number);
   font-variant-numeric: tabular-nums;
   letter-spacing: 1px;
 }
@@ -1304,22 +1309,24 @@ onMounted(load)
   flex-direction: column;
   max-height: 90dvh;
   margin-block: 5vh;
-  padding: 20px;
-  border: 1px solid #e4e9df;
-  border-radius: 14px;
+  padding: var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
 }
 :global(.card-details-dialog .el-dialog__header),
 :global(.card-details-dialog .el-dialog__footer) {
   flex-shrink: 0;
 }
 :global(.card-details-dialog .el-dialog__header) {
-  padding-bottom: 12px;
+  padding-bottom: var(--space-3);
 }
 :global(.card-details-dialog .el-dialog__title) {
+  font-family: var(--font-heading);
   font-size: 19px;
 }
 :global(.card-details-dialog .el-dialog__footer) {
-  padding-top: 12px;
+  padding-top: var(--space-3);
+  margin-top: var(--space-1);
 }
 :global(.card-details-dialog .el-dialog__body) {
   min-height: 0;
@@ -1330,20 +1337,20 @@ onMounted(load)
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
 }
 .card-detail-heading {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin: 0 0 8px;
-  padding: 11px 14px;
-  border: 1px solid #e2e9df;
-  border-left: 3px solid var(--el-color-primary);
-  border-radius: 8px;
-  background: #f2f6ef;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
 }
 .card-detail-heading.is-untracked {
   border-color: #c9def1;
@@ -1366,13 +1373,15 @@ onMounted(load)
 }
 .card-detail-heading h2 {
   margin: 0;
-  color: var(--el-text-color-primary);
+  color: var(--ink);
+  font-family: var(--font-heading);
   font-size: 19px;
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
 .card-detail-tail {
-  color: #6c7e71;
+  color: var(--muted);
+  font-family: var(--font-number);
   font-size: 14px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -1383,28 +1392,28 @@ onMounted(load)
 .card-detail-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  column-gap: 20px;
+  column-gap: var(--space-5);
   margin: 0;
 }
 .card-detail-list > div {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   min-width: 0;
-  padding: 8px 0;
-  border-bottom: 1px solid #e9ede5;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
   line-height: 1.5;
 }
 .card-detail-list dt {
   flex-shrink: 0;
-  color: #748178;
+  color: var(--muted);
   font-size: 12px;
 }
 .card-detail-list dd {
   min-width: 0;
   margin: 0;
-  color: var(--el-text-color-primary);
+  color: var(--ink);
   font-size: 14px;
   font-weight: 500;
   text-align: right;
@@ -1413,8 +1422,8 @@ onMounted(load)
 .card-private-block {
   margin: 10px 0 2px;
   padding: 10px 12px;
-  border: 1px solid #e0e8df;
-  border-radius: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
   background: #f2f6ef;
 }
 .card-private-fields > div {
@@ -1425,11 +1434,11 @@ onMounted(load)
   justify-content: flex-start;
   gap: 16px;
   padding: 0 0 8px;
-  border-bottom: 1px solid #e0e8df;
+  border-bottom: 1px solid var(--line);
 }
 .card-detail-list .card-number-value:not(.is-empty) {
-  color: var(--el-color-primary);
-  font-family: Consolas, 'Liberation Mono', monospace;
+  color: var(--accent);
+  font-family: var(--font-number);
   font-size: 22px;
   font-weight: 600;
   line-height: 1.4;
@@ -1443,23 +1452,24 @@ onMounted(load)
   align-items: center;
   justify-content: flex-start;
   flex-wrap: wrap;
-  gap: 6px 10px;
+  gap: var(--space-2) var(--space-3);
   margin-top: 2px;
-  padding-top: 8px;
-  border-top: 1px solid #e0e8df;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--line);
 }
 .private-controls .card-field-hint {
   margin: 0;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
 }
 .card-detail-list .card-detail-limit {
-  color: var(--el-color-primary);
+  color: var(--accent);
+  font-family: var(--font-number);
   font-size: 17px;
   font-variant-numeric: tabular-nums;
 }
 .card-detail-list .is-empty {
-  color: #8a938b;
+  color: var(--subtle);
   font-size: 13px;
   font-weight: 400;
 }
@@ -1467,12 +1477,12 @@ onMounted(load)
   grid-column: 1 / -1;
   flex-direction: column;
   align-items: stretch;
-  gap: 4px;
-  margin-top: 12px;
-  padding: 10px 12px;
-  border: 1px solid #e9e7dc;
-  border-radius: 8px;
-  background: #faf9f4;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--paper);
 }
 .card-detail-benefits dd {
   white-space: pre-wrap;
@@ -1513,9 +1523,9 @@ onMounted(load)
   }
 }
 .card-management {
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid var(--el-border-color-lighter);
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line);
 }
 .card-management h3 {
   margin: 0;
@@ -1544,12 +1554,12 @@ onMounted(load)
 .annual-fee-date {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: var(--space-3);
   width: 100%;
 }
 .card-field-hint {
   margin-top: 6px;
-  color: var(--el-text-color-secondary);
+  color: var(--muted);
   font-size: 12px;
   line-height: 1.6;
 }
@@ -1558,39 +1568,41 @@ onMounted(load)
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 6px 2px 20px;
+  gap: var(--space-4);
+  padding: var(--space-2) 0 var(--space-5);
 }
 .card-collection-title {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
 }
 .card-collection-title h2 {
+  font-family: var(--font-heading);
   font-size: 20px;
   letter-spacing: 1px;
-  color: #263f34;
+  color: var(--ink);
 }
 .card-count {
   padding: 3px 9px;
   border-radius: 6px;
-  background: #eef2e9;
-  color: #55705b;
+  background: var(--surface-soft);
+  color: var(--accent);
   font-size: 12px;
+  font-family: var(--font-number);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .card-collection-heading p {
-  margin: 7px 0 0;
+  margin: var(--space-2) 0 0;
   font-size: 12px;
-  color: #6b7968;
+  color: var(--muted);
 }
 .collection-active-count {
   display: inline-flex;
   align-items: center;
   gap: 7px;
   font-size: 12px;
-  color: #53745e;
+  color: var(--accent);
   white-space: nowrap;
 }
 .collection-active-count i,
@@ -1605,20 +1617,20 @@ onMounted(load)
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
   align-items: end;
-  gap: 12px;
-  padding: 16px;
-  border: 1px solid #e6e9df;
-  border-radius: 10px;
-  background: #f6f7f1;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
 }
 .card-list-filter {
   min-width: 0;
 }
 .card-filter-label {
   display: block;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
   font-size: 12px;
-  color: #596b5c;
+  color: var(--muted);
   font-weight: 500;
 }
 .card-list-filter .el-select {
@@ -1626,35 +1638,35 @@ onMounted(load)
 }
 .card-list-filter :deep(.el-select__wrapper) {
   min-height: 36px;
-  background: #fffefa;
+  background: var(--surface);
 }
 .card-list-toolbar {
   flex-wrap: wrap;
-  gap: 8px;
-  padding: 18px 2px 14px;
+  gap: var(--space-2);
+  padding: var(--space-4) 0;
 }
 .card-list-toolbar p {
   margin: 0;
-  color: #697764;
+  color: var(--muted);
   font-size: 12px;
   line-height: 1.7;
 }
 .card-sort-note {
-  color: #6c7966;
-  font-size: 11px;
+  color: var(--subtle);
+  font-size: 12px;
   letter-spacing: 0.5px;
   white-space: nowrap;
 }
 .bank-card-table {
   width: 100%;
-  border: 1px solid #e1e6dc;
-  border-radius: 10px;
-  --el-table-header-bg-color: #edf1e7;
-  --el-table-header-text-color: #60745d;
-  --el-table-text-color: #3d5146;
-  --el-table-border-color: #e7ebe2;
-  --el-table-tr-bg-color: #fffefa;
-  --el-table-row-hover-bg-color: #f0f5eb;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  --el-table-header-bg-color: var(--surface-soft);
+  --el-table-header-text-color: var(--muted);
+  --el-table-text-color: var(--ink);
+  --el-table-border-color: var(--line);
+  --el-table-tr-bg-color: var(--surface);
+  --el-table-row-hover-bg-color: var(--surface-soft);
 }
 .bank-card-table :deep(.el-table__inner-wrapper::before) {
   display: none;
@@ -1673,7 +1685,7 @@ onMounted(load)
   padding-inline: 14px;
 }
 .bank-card-table :deep(.bank-group-start td.el-table__cell) {
-  border-top: 2px solid #dce4d6;
+  border-top: 2px solid var(--line);
 }
 .bank-card-table :deep(.is-inactive) {
   --card-inactive-text-color: #a3a6a0;
@@ -1694,7 +1706,7 @@ onMounted(load)
   flex: 0 0 34px;
   width: 34px;
   height: 34px;
-  border-radius: 10px;
+  border-radius: var(--radius);
   font-size: 18px;
   box-shadow: inset 0 0 0 1px rgb(65 84 60 / 5%);
 }
@@ -1705,10 +1717,10 @@ onMounted(load)
 .card-holder-label {
   display: inline-block;
   padding: 3px 8px;
-  border: 1px solid #e6e9df;
+  border: 1px solid var(--line);
   border-radius: 5px;
   font-size: 12px;
-  background: #f7f8f2;
+  background: var(--surface-soft);
 }
 .card-product-name {
   font-weight: 600;
@@ -1719,18 +1731,19 @@ onMounted(load)
   align-items: center;
   gap: 7px;
   padding: 4px 7px;
-  border: 1px solid #e0e7da;
+  border: 1px solid var(--line);
   border-radius: 5px;
-  background: #f4f7ef;
-  color: #385340;
-  font-family: Consolas, 'SFMono-Regular', monospace;
+  background: var(--surface-soft);
+  color: var(--accent);
+  font-family: var(--font-number);
+  font-variant-numeric: tabular-nums;
   font-size: 15px;
   letter-spacing: 1px;
   white-space: nowrap;
 }
 .card-number-mask {
-  color: #a6b19c;
-  font-size: 10px;
+  color: var(--subtle);
+  font-size: 12px;
   letter-spacing: 0;
 }
 .card-type-label,
@@ -1739,15 +1752,15 @@ onMounted(load)
   font-size: 12px;
 }
 .card-type-label {
-  color: #61725d;
+  color: var(--muted);
 }
 .card-network-label {
   padding: 2px 7px;
-  border: 1px solid #e5e7df;
+  border: 1px solid var(--line);
   border-radius: 4px;
-  color: #5e6c59;
+  color: var(--muted);
   font-weight: 500;
-  background: #fafbf6;
+  background: var(--surface-soft);
 }
 .card-network-label.visa {
   color: #425e87;
@@ -1766,7 +1779,7 @@ onMounted(load)
 }
 .card-type-label.is-unset,
 .card-network-label.is-unset {
-  color: #687561;
+  color: var(--subtle);
   font-weight: 400;
 }
 .card-network-label.is-unset {
@@ -1775,7 +1788,7 @@ onMounted(load)
   background: none;
 }
 .card-account-name {
-  color: #687563;
+  color: var(--muted);
   font-size: 12px;
 }
 .card-status-label {
@@ -1786,7 +1799,7 @@ onMounted(load)
   border-radius: 5px;
   background: #edf4e9;
   color: #486d39;
-  font-size: 11px;
+  font-size: 12px;
   white-space: nowrap;
 }
 .card-status-label.inactive,
@@ -1809,11 +1822,11 @@ onMounted(load)
   background: #edf4f6;
 }
 .card-details-action {
-  --el-button-bg-color: #fffefa;
-  --el-button-border-color: #cfdbcb;
-  --el-button-text-color: #3c6148;
+  --el-button-bg-color: var(--surface);
+  --el-button-border-color: var(--line);
+  --el-button-text-color: var(--accent);
   gap: 5px;
-  height: 29px;
+  height: 32px;
   padding-inline: 10px;
   font-size: 12px;
 }
@@ -1850,26 +1863,27 @@ onMounted(load)
 
 .account-list {
   container-type: inline-size;
-  padding: 0 22px 16px;
+  padding: 0 0 var(--space-4);
 }
 .account-list-header,
 .account-card {
   display: grid;
   grid-template-columns: minmax(210px, 1.2fr) 112px minmax(140px, 1fr) 126px 188px;
   align-items: center;
-  gap: 16px;
-  padding: 14px 16px;
+  gap: var(--space-4);
+  padding: var(--space-4);
 }
 .account-list-header {
-  color: #7b8779;
+  color: var(--muted);
   font-size: 12px;
-  padding-block: 10px;
+  padding-block: var(--space-3);
+  background: var(--surface-soft);
 }
 .account-rows {
   overflow: hidden;
-  border: 1px solid #e0e5d8;
-  border-radius: 10px;
-  background: #f7f9f0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
 }
 .account-card {
   border: 0;
@@ -1878,10 +1892,10 @@ onMounted(load)
   background: transparent;
 }
 .account-card + .account-card {
-  border-top: 1px solid #e0e5d8;
+  border-top: 1px solid var(--line);
 }
 .account-card:hover {
-  background: #f0f4e9;
+  background: var(--surface-soft);
 }
 .account-card-head {
   display: flex;
@@ -1905,7 +1919,7 @@ onMounted(load)
   line-height: 1.5;
 }
 .account-identity > span {
-  color: #737e74;
+  color: var(--muted);
   font-size: 12px;
   line-height: 1.6;
 }
@@ -1950,11 +1964,12 @@ onMounted(load)
   font-size: 12px;
 }
 .account-statement-day {
-  color: #737e74;
+  color: var(--muted);
   white-space: nowrap;
 }
 .account-statement-day strong {
-  color: #253932;
+  color: var(--ink);
+  font-family: var(--font-number);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
