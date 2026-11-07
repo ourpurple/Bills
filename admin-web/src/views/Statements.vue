@@ -495,6 +495,7 @@ onMounted(async () => {
       </p>
     </div>
     <el-table
+      class="statement-table"
       :data="rows"
       v-loading="loading"
       :empty-text="
@@ -502,23 +503,30 @@ onMounted(async () => {
           ? '没有符合条件的账单，试试调整或重置筛选。'
           : '没有账单，点击“录入账单”创建第一份。'
       "
-      ><el-table-column label="卡片 / 尾号 / 银行 / 持卡人" min-width="260"
+      ><el-table-column label="卡片 / 尾号 / 银行 / 持卡人" min-width="200"
         ><template #default="{ row }"
           ><AccountIdentity :account="row.account" /></template></el-table-column
-      ><el-table-column prop="statement_date" label="账单日" min-width="110" /><el-table-column
+      ><el-table-column prop="statement_date" label="账单日" min-width="120" /><el-table-column
         label="本期应还"
         min-width="130"
         align="right"
         ><template #default="{ row }"
           ><span class="numeric">{{ amountText(row.amount, row.currency) }}</span></template
         ></el-table-column
-      ><el-table-column label="记录待还" min-width="130" align="right"
+      ><el-table-column
+        label="记录待还"
+        min-width="130"
+        align="right"
+        class-name="statement-remaining"
         ><template #default="{ row }"
           ><strong class="numeric">{{ amountText(row.remaining, row.currency) }}</strong></template
         ></el-table-column
-      ><el-table-column prop="due_date" label="到期日" min-width="110" /><el-table-column
-        label="状态"
-        min-width="120"
+      ><el-table-column
+        prop="due_date"
+        label="到期日"
+        min-width="160"
+        class-name="statement-due"
+      /><el-table-column label="状态" min-width="120"
         ><template #default="{ row }"
           ><el-tag :type="stateTagType(row)">{{ stateText(row) }}</el-tag></template
         ></el-table-column
@@ -788,6 +796,20 @@ onMounted(async () => {
   font-size: 12px;
   color: var(--muted);
   font-weight: 400;
+}
+
+/* Redistribute columns only: keep the page width and the table's 940px minimum unchanged. */
+.statement-table :deep(.statement-remaining .cell) {
+  padding-right: 20px;
+}
+.statement-table :deep(.statement-due .cell) {
+  padding-left: 32px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.statement-table :deep(.numeric) {
+  display: block;
+  overflow-wrap: anywhere;
 }
 
 .statement-filters {
